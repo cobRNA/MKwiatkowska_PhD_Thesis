@@ -1,0 +1,7 @@
+annotation	Organism	Biotype	count
+GENCODE v47	human	Protein coding	20092
+GENCODE v47	human	lncRNA	35934
+GENCODE vM36	mouse	Protein coding	21700
+GENCODE vM36	mouse	lncRNA	36172
+ENSEMBL v104	zebrafish	Protein coding	25107
+ENSEMBL v104	zebrafish	lncRNA	3247
