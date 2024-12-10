@@ -1,0 +1,821 @@
+ _______                       __        __                            __             __               
+|       \                     |  \      |  \                          |  \           |  \              
+| $$$$$$$\  ______    ______  | $$____   \$$  ______          ______  | $$  ______  _| $$_     _______ 
+| $$__/ $$ |      \  /      \ | $$    \ |  \ /      \        /      \ | $$ /      \|   $$ \   /       \
+| $$    $$  \$$$$$$\|  $$$$$$\| $$$$$$$\| $$|  $$$$$$\      |  $$$$$$\| $$|  $$$$$$\\$$$$$$  |  $$$$$$$
+| $$$$$$$\ /      $$| $$   \$$| $$  | $$| $$| $$    $$      | $$  | $$| $$| $$  | $$ | $$ __  \$$    \ 
+| $$__/ $$|  $$$$$$$| $$      | $$__/ $$| $$| $$$$$$$$      | $$__/ $$| $$| $$__/ $$ | $$|  \ _\$$$$$$\
+| $$    $$ \$$    $$| $$      | $$    $$| $$ \$$     \      | $$    $$| $$ \$$    $$  \$$  $$|       $$
+ \$$$$$$$   \$$$$$$$ \$$       \$$$$$$$  \$$  \$$$$$$$      | $$$$$$$  \$$  \$$$$$$    \$$$$  \$$$$$$$ 
+                                                            | $$                                       
+                                                            | $$                                       
+                                                             \$$                                       
+
+# Load R libraries
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(
+  ggplot2,
+  scales,
+  dplyr,
+  ggrepel,
+  scatterpie
+)
+```
+
+# Prepare environment and produce plot input
+```{bash, engine.opts='-l'}
+# +++++++++++++++++++++++++++++++++++++++++++++
+# REQUIREMENTS
+# +++++++++++++++++++++++++++++++++++++++++++++
+# 1) Catalogs in gtf.gz file format in ../../lncRNA_catalogs/output/ directory.
+# 2) Cage data in ../../CAGE/all_merged.bed.gz
+# 3) polyA data in ../../polyA-sites/danRer11.polyAsites.bed.gz
+# 4) Installed bedtools v2.31.0
+# 5) Utils in ../../../Utils/ directory:
+#     - bed12togff
+#     - buildLoci.pl
+#     - gffToHash.pm
+#     - hashToGff.pm
+#     - extractTranscriptEndsFromBed12.pl
+#     - gff2bed_full.pl
+#     - join.py
+#     - sortbed
+
+# +++++++++++++++++++++++++++++++++++++++++++++
+# DESCRIPTION
+# +++++++++++++++++++++++++++++++++++++++++++++
+# Takes gtf formatted data from:
+# - ../../lncRNA_catalogs/output/
+# - ../../Tmerged/output/
+# - ../../Coding_potential/
+# and calculates barbie plot input
+
+
+##########################################################################################
+# Clean-up generated data
+##########################################################################################
+echo '++++++ Cleaning up data from previous run ++++++'
+rm -r ../.temp/barbie_plots/
+rm ./plot_input.tsv
+echo '>> Done <<'
+
+
+##########################################################################################
+# Handle errors
+##########################################################################################
+set -e          # exit on any non-0 exit status
+set -o pipefail # exit on any non-0 exit status in pipe
+
+
+##########################################################################################
+# Create directory structure
+##########################################################################################
+echo '++++++ Creating necessary directory structure ++++++'
+# Dir for .temp data
+mkdir ../.temp/barbie_plots/
+mkdir ../.temp/barbie_plots/danio_catalogs/
+mkdir ../.temp/barbie_plots/human_catalogs/
+mkdir ../.temp/barbie_plots/Cage/
+mkdir ../.temp/barbie_plots/PolyA/
+mkdir ../.temp/barbie_plots/Fl/
+mkdir -p ../../Plots/Barbie_plots/
+mkdir -p ../../Plots/Barbie_plots/Inputs/
+echo '>> Done <<'
+
+
+##########################################################################################
+# Move to working dir
+##########################################################################################
+cd ../.temp/barbie_plots/
+
+
+##########################################################################################
+# Copy files
+##########################################################################################
+# lncRNA catalogs
+cp ../../lncRNA_catalogs/output/* ./danio_catalogs/
+# tmerged file
+cp ../../Tmerge/output/all_tmerged.gtf.gz ./danio_catalogs/
+# concatenated transcripts (remove unnecessary tags and sirvs)
+zcat ../../Tmerge/output/all_concatenated.gtf.gz | ../../../Utils/gff2bed_full.pl - | ../../../Utils/bed12togff - | awk '$1 ~ /^chr[0-9XYM]{1,2}$/ {print $0}' | gzip > ./danio_catalogs/all_concatenated_formatted.gtf.gz
+# mergedToReference
+cp ../../MergeToRef/output/mergedToEnsemblRef.gtf.gz ./danio_catalogs/
+# GENCODE 47 lncRNA
+cp ../../Source/Additional/gencode.v47.long_noncoding_RNAs.gtf.gz ./human_catalogs/gencode_v47_long_noncoding_RNAs.gtf.gz
+# lncRNA transcripts IDs
+cp ../../Coding_potential/CPAT_noncoding.tsv .
+cp ../../Coding_potential/CPC2_noncoding.tsv .
+cp ../../Coding_potential/CPAT_intersect_CPC2_noncoding.tsv .
+# protein coding transcripts IDs
+cp ../../Coding_potential/CPAT_coding.tsv .
+cp ../../Coding_potential/CPC2_coding.tsv .
+cp ../../Coding_potential/CPAT_intersect_CPC2_coding.tsv .
+# Ensembl v104 annotation (to calculate protein coding)
+cp ../../Source/Annotations/ensembl104_GRCz11.gtf.gz .
+# GENCODE 47 annotation (to calculate protein coding)
+cp ../../Source/Additional/gencode.v47.annotation.gtf.gz .
+
+
+##########################################################################################
+# Decompress files
+##########################################################################################
+# Danio
+## polyA-sites
+zcat ../../polyA-sites/danRer11_polyAsites.bed.gz > ./danRer11_polyAsites.bed
+## CAGE
+zcat ../../CAGE/danRer11_CAGE.bed.gz > ./danRer11_CAGE.bed
+
+# Human
+## polyA-sites
+zcat ../../Source/Additional/hg38.polyAsignals.bed.gz > ./hg38.polyAsignals.bed
+## CAGE
+zcat ../../Source/Additional/hg38_fair+new_CAGE_peaks_phase1and2.bed.gz > ./hg38_fair+new_CAGE_peaks_phase1and2.bed
+
+
+##########################################################################################
+# Extract lncRNA for each coding potential set
+##########################################################################################
+# Get lncRNA tx ids
+cat ./CPAT_noncoding.tsv | awk 'NR>1 {print $1}' | sort | uniq | grep "\S" > ./CPAT_noncoding.ids
+cat ./CPC2_noncoding.tsv | awk 'NR>1 {print $1}' | sort | uniq | grep "\S" > ./CPC2_noncoding.ids
+cat ./CPAT_intersect_CPC2_noncoding.tsv | awk 'NR>1 {print $1}' | sort | uniq | grep "\S" > ./CPAT_intersect_CPC2_noncoding.ids
+cat ./CPAT_intersect_CPC2_noncoding.tsv | awk 'NR>1 {print $1}' | grep -v "\-noSS500" | grep -v "\-TSO" | sort | uniq | grep "\S" > ./CPAT_intersect_CPC2_noncoding_SS500.ids
+# Create lncRNA slices
+## CPAT
+zcat ./danio_catalogs/all_concatenated_formatted.gtf.gz | grep -Fwf ./CPAT_noncoding.ids | grep "\S" | gzip > ./danio_catalogs/all_concatenated_lncRNA_CPAT.gtf.gz
+## CPC2
+zcat ./danio_catalogs/all_concatenated_formatted.gtf.gz | grep -Fwf ./CPC2_noncoding.ids | grep "\S" | gzip > ./danio_catalogs/all_concatenated_lncRNA_CPC2.gtf.gz
+## CPAT intersecting CPC2
+### All
+zcat ./danio_catalogs/all_concatenated_formatted.gtf.gz | grep -Fwf ./CPAT_intersect_CPC2_noncoding.ids | grep "\S" | gzip > ./danio_catalogs/all_concatenated_lncRNA_CPAT+CPC2.gtf.gz
+### Only SS500 (without TSO and noSS500)
+zcat ./danio_catalogs/all_concatenated_formatted.gtf.gz | grep -Fwf ./CPAT_intersect_CPC2_noncoding_SS500.ids | grep "\S" | gzip > ./danio_catalogs/all_concatenated_lncRNA_CPAT+CPC2_SS500.gtf.gz
+
+
+##########################################################################################
+# Extract protein coding for each coding potential set
+##########################################################################################
+# Get protein coding tx ids
+cat ./CPAT_coding.tsv | awk 'NR>1 {print $1}' | sort | uniq | grep "\S" > ./CPAT_coding.ids
+cat ./CPC2_coding.tsv | awk 'NR>1 {print $1}' | sort | uniq | grep "\S" > ./CPC2_coding.ids
+cat ./CPAT_intersect_CPC2_coding.tsv | awk 'NR>1 {print $1}' | sort | uniq | grep "\S" > ./CPAT_intersect_CPC2_coding.ids
+# Create protein coding slices
+## CPAT
+zcat ./danio_catalogs/all_concatenated_formatted.gtf.gz | grep -Fwf ./CPAT_coding.ids | grep "\S" | gzip > ./danio_catalogs/all_concatenated_pc_CPAT.gtf.gz
+## CPC2
+zcat ./danio_catalogs/all_concatenated_formatted.gtf.gz | grep -Fwf ./CPC2_coding.ids | grep "\S" | gzip > ./danio_catalogs/all_concatenated_pc_CPC2.gtf.gz
+## CPAT intersecting CPC2
+zcat ./danio_catalogs/all_concatenated_formatted.gtf.gz | grep -Fwf ./CPAT_intersect_CPC2_coding.ids | grep "\S" | gzip > ./danio_catalogs/all_concatenated_pc_CPAT+CPC2.gtf.gz
+
+
+##########################################################################################
+# Prepare protein coding ENSEMBL.v104 slice
+##########################################################################################
+# Acquire protein coding gene IDs
+zcat ./ensembl104_GRCz11.gtf.gz | grep -Fw "transcript_biotype \"protein_coding\";" | ../../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" > ./ensembl104_pc.ids
+# Extract only pc transcripts
+zcat ./ensembl104_GRCz11.gtf.gz | grep -Fwf ./ensembl104_pc.ids | awk -F"\t" '{OFS=FS} $1="chr"$1' | sed 's/chrMT/chrM/g' | awk '$1 ~ /^chr[0-9XYM]{1,2}$/ {print $0}' | ../../../Utils/gff2gff.pl - | grep "\S" | gzip > ./danio_catalogs/ensembl104_GRCz11_pc.gtf.gz
+
+
+##########################################################################################
+# Create ENSEMBL+ (Monika's lncRNAS + Ensembl104; should give same results as MergedToRef)
+##########################################################################################
+# Reformat ENSEMBL.v104 (this should give sum of lncRNAs and PC for ENSEMBL)
+zcat ensembl104_GRCz11.gtf.gz | ../../../Utils/skipcomments | sed 's/^/chr/' | sed 's/chrMT/chrM/g' | awk '$3=="exon"' | sed 's/gene_biotype/gene_type/g' | ../../../Utils/gff2gff.pl - | gzip > ./danio_catalogs/Danio_rerio.GRCz11.104.chr_formatted.gtf.gz
+
+# ENSEMBL+ Merge lncRNAs with whole ENSEMBL104 annotation
+zcat ./danio_catalogs/all_concatenated_lncRNA_CPAT+CPC2.gtf.gz ./danio_catalogs/Danio_rerio.GRCz11.104.chr_formatted.gtf.gz | ../../../Utils/sortgff - | ../../../Utils/tmerge --exonOverhangTolerance 8 --tmPrefix anch - | ../../../Utils/sortgff - | gzip > ./danio_catalogs/ensembl+.gtf.gz
+
+# ENSEMBL++ Merge all transcripts with whole ENSEMBL104 annotation 
+zcat ./danio_catalogs/all_concatenated_formatted.gtf.gz ./danio_catalogs/Danio_rerio.GRCz11.104.chr_formatted.gtf.gz | ../../../Utils/sortgff - | ../../../Utils/tmerge --exonOverhangTolerance 8 --tmPrefix anch - | ../../../Utils/sortgff - | gzip > ./danio_catalogs/ensembl++.gtf.gz
+
+
+##########################################################################################
+# Prepare protein coding GENCODE 47 slice
+##########################################################################################
+# Acquire transcript IDs without start/end mRNAs
+zcat ./gencode.v47.annotation.gtf.gz | ../../../Utils/extract.gtf.tags.sh - transcript_id,tag | grep -E "mRNA_start_NF|mRNA_end_NF" | cut -f1 | sort | uniq | grep "\S" > gen47.mrna.start.end.nf.txID
+# Acquire protein coding transcript IDs
+zcat ./gencode.v47.annotation.gtf.gz | awk '$3=="transcript"' | awk '$18=="\"protein_coding\";"{print $12}' | sed 's/;//g' | sed 's/"//g' | sort | uniq > gen47.pc.tx.ids
+# Slice annotation but exclude transcripts without start/end mRNAs
+zcat ./gencode.v47.annotation.gtf | fgrep -f gen47.pc.tx.ids | fgrep -vf gen47.mrna.start.end.nf.txID | grep "\S" | gzip > ./human_catalogs/gencode47_GRCh38_pc_conf.gtf.gz
+
+
+# Acquire protein coding gene IDs
+#zcat ./gencode.v47.annotation.gtf.gz | grep -Fw "gene_type \"protein_coding\";" | ../../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" > ./gencode47_pc.ids
+# Extract only pc genes
+#zcat ./gencode.v47.annotation.gtf.gz | grep -Fwf ./gencode47_pc.ids | grep "\S" | gzip > ./human_catalogs/gencode47_GRCh38_pc.gtf.gz
+
+
+##########################################################################################
+# Create config files
+##########################################################################################
+# Zebrafish catalogs
+for file in `ls ./danio_catalogs/`; do echo $file | awk -F"/" '{print $NF}' | awk -F"." '{print $1}' >> ./danio_catalogs.config; done
+# Human Catalogs
+for file in `ls ./human_catalogs/`; do echo $file | awk -F"/" '{print $NF}' | awk -F"." '{print $1}' >> ./human_catalogs.config; done
+# Ends
+for end in 3 5; do echo $end >> ./ends.config; done
+
+
+##########################################################################################
+##########################################################################################
+# Generate data for Zebrafish barbie plot
+##########################################################################################
+##########################################################################################
+
+##########################################################################################
+# % Support
+##########################################################################################
+
+echo 'Get fl-tx'
+
+while read file || [ -n "$file" ]
+    do
+        echo $file
+        zcat ./danio_catalogs/$file.gtf.gz | ../../../Utils/gff2bed_full.pl - | awk 'BEGIN{FS=OFS="\t"}$6!="."' | awk '$1 ~ /^chr[0-9XYM]{1,2}$/ {print $0}' | awk '$10 > 1 {print $0}' | gzip > ./$file.bed12.gz
+
+        while read end
+        do
+            echo $end
+            zcat ./$file.bed12.gz | ../../../Utils/extractTranscriptEndsFromBed12.pl $end | ../../../Utils/sortbed | gzip > ./$file.$end.bed.gz
+        done < ./ends.config
+
+        ## polyA
+        echo '++++++ Looking for polyA supported TM ++++++'
+        while read end
+        do
+            zcat ./$file.$end.bed.gz | ../../../Utils/sortbed | bedtools slop -s -l 50 -r 10 -i stdin -g ../../Source/Additional/danRer11.chrom.sizes | bedtools intersect -u -s -a stdin -b ./danRer11_polyAsites.bed | gzip > ./$file.$end.bed.vspolyAsignals.bedtsv.gz
+        done < ./ends.config
+        echo '>> Done <<'
+
+        ## CAGE FANTOM phase 1+2
+        echo '++++++ Looking for CAGE supported TM ++++++'
+        while read end
+        do
+            zcat ./$file.$end.bed.gz | ../../../Utils/sortbed | bedtools slop -s -l 50 -r 50 -i stdin -g ../../Source/Additional/danRer11.chrom.sizes | bedtools intersect -u -s -a stdin -b ./danRer11_CAGE.bed | gzip > ./$file.$end.bed.vsCage.fantom.bedtsv.gz
+        done < ./ends.config
+        echo '>> Done <<'
+
+        ## Extract Cage and polyA supported transcripts
+        echo '++++++ Extracting CAGE and polyA supported transcripts ++++++'
+        zcat ./$file.5.bed.vsCage.fantom.bedtsv.gz | cut -f4 | sed 's/,/\n/g' | sort | uniq > ./$file.tx.cage
+        zcat ./$file.3.bed.vspolyAsignals.bedtsv.gz | cut -f4 | sed 's/,/\n/g' | sort | uniq > ./$file.tx.polyA
+        echo '>> Done <<'
+
+        ## Get fl-tx for Unified
+        ../../../Utils/join.py -a ./$file.tx.cage -b ./$file.tx.polyA -x 1 -y 1 > ./Fl/$file.fl.tx.tsv
+
+        echo '++++++ Aquiring geneIds and txIds ++++++'
+        # --------------------------------------------------------------------
+        # GTF from danRer11.bed12
+        # --------------------------------------------------------------------
+        zcat ./$file.bed12.gz | ../../../Utils/bed12togff - > ./$file.lncRNAs.danRer11.gtf
+
+        # --------------------------------------------------------------------
+        # build the gene ids
+        # --------------------------------------------------------------------
+        echo $full_name
+        bedtools intersect -s -wao -a ./$file.lncRNAs.danRer11.gtf -b ./$file.lncRNAs.danRer11.gtf | ../../../Utils/buildLoci.pl - > ./$file.lncRNAs.danRer11.gene.tmp.gtf
+        ../../../Utils/gff2gff.pl ./$file.lncRNAs.danRer11.gene.tmp.gtf > ./$file.lncRNAs.danRer11.gene.gtf
+
+        # --------------------------------------------------------------------
+        # get the gene ids from the danRer11.gtfs
+        # --------------------------------------------------------------------
+        cat ./$file.lncRNAs.danRer11.gene.gtf | awk '{print $10}' | sed 's/;//g' | sed 's/"//g' | sort | uniq > ./$file.buildLoci.geneIds
+
+        # --------------------------------------------------------------------
+        # Get the txs Ids
+        # --------------------------------------------------------------------
+        cat ./$file.lncRNAs.danRer11.gene.gtf | awk '$3=="exon"{print $12}' | sed 's/;//g'| sed 's/"//g'| sort | uniq > ./$file.buildLoci.txIds
+
+        echo '>> Done <<'
+        ###################################
+        echo 'Generating plot input data'
+        # --------------------------------------------------------------------
+        fl=`cat ./Fl/$file.fl.tx.tsv | wc -l`
+        total=`zcat ./$file.bed12.gz | cut -f4 | sort | uniq | wc -l`
+        propFl=`echo $fl / $total | bc -l`
+        gene=`cat ./$file.buildLoci.geneIds | sort | uniq | wc -l`
+        tx=`cat ./$file.buildLoci.txIds | sort | uniq | wc -l`
+        nbTx=`echo $tx / $gene | bc -l`
+        echo -e "$file\t$propFl\t$gene\t$nbTx" >> ../../Barbie_plots/plot_input.tsv
+
+    done < ./danio_catalogs.config
+    
+    
+##########################################################################################
+##########################################################################################
+# Generate data for Human barbie plot
+##########################################################################################
+##########################################################################################
+
+##########################################################################################
+# % Support
+##########################################################################################
+
+echo 'Get fl-tx'
+
+while read file || [ -n "$file" ]
+    do
+        echo $file
+        zcat ./human_catalogs/$file.gtf.gz | ../../../Utils/gff2bed_full.pl - | awk 'BEGIN{FS=OFS="\t"}$6!="."' | awk '$1 ~ /^chr[0-9XYM]{1,2}$/ {print $0}' | awk '$10 > 1 {print $0}' | gzip > ./$file.bed12.gz
+
+        while read end
+        do
+            echo $end
+            zcat ./$file.bed12.gz | ../../../Utils/extractTranscriptEndsFromBed12.pl $end | ../../../Utils/sortbed | gzip > ./$file.$end.bed.gz
+        done < ./ends.config
+
+        ## polyA
+        echo '++++++ Looking for polyA supported TM ++++++'
+        while read end
+        do
+            zcat ./$file.$end.bed.gz | ../../../Utils/sortbed | bedtools slop -s -l 50 -r 10 -i stdin -g ../../Source/Additional/hg38.chrom.sizes | bedtools intersect -u -s -a stdin -b ./hg38.polyAsignals.bed | gzip > ./$file.$end.bed.vspolyAsignals.bedtsv.gz
+        done < ./ends.config
+        echo '>> Done <<'
+
+        ## CAGE FANTOM phase 1+2
+        echo '++++++ Looking for CAGE supported TM ++++++'
+        while read end
+        do
+            zcat ./$file.$end.bed.gz | ../../../Utils/sortbed | bedtools slop -s -l 50 -r 50 -i stdin -g ../../Source/Additional/hg38.chrom.sizes | bedtools intersect -u -s -a stdin -b ./hg38_fair+new_CAGE_peaks_phase1and2.bed | gzip > ./$file.$end.bed.vsCage.fantom.bedtsv.gz
+        done < ./ends.config
+        echo '>> Done <<'
+
+        ## Extract Cage and polyA supported transcripts
+        echo '++++++ Extracting CAGE and polyA supported transcripts ++++++'
+        zcat ./$file.5.bed.vsCage.fantom.bedtsv.gz | cut -f4 | sed 's/,/\n/g' | sort | uniq > ./$file.tx.cage
+        zcat ./$file.3.bed.vspolyAsignals.bedtsv.gz | cut -f4 | sed 's/,/\n/g' | sort | uniq > ./$file.tx.polyA
+        echo '>> Done <<'
+
+        ## Get fl-tx for Unified
+        ../../../Utils/join.py -a ./$file.tx.cage -b ./$file.tx.polyA -x 1 -y 1 > ./Fl/$file.fl.tx.tsv
+
+        echo '++++++ Aquiring geneIds and txIds ++++++'
+        # --------------------------------------------------------------------
+        # GTF from hg38.bed12
+        # --------------------------------------------------------------------
+        zcat ./$file.bed12.gz | ../../../Utils/bed12togff - > ./$file.lncRNAs.hg38.gtf
+
+        # --------------------------------------------------------------------
+        # build the gene ids
+        # --------------------------------------------------------------------
+        echo $full_name
+        bedtools intersect -s -wao -a ./$file.lncRNAs.hg38.gtf -b ./$file.lncRNAs.hg38.gtf | ../../../Utils/buildLoci.pl - > ./$file.lncRNAs.hg38.gene.tmp.gtf
+        ../../../Utils/gff2gff.pl ./$file.lncRNAs.hg38.gene.tmp.gtf > ./$file.lncRNAs.hg38.gene.gtf
+
+        # --------------------------------------------------------------------
+        # get the gene ids from the hg38.gtfs
+        # --------------------------------------------------------------------
+        cat ./$file.lncRNAs.hg38.gene.gtf | awk '{print $10}' | sed 's/;//g' | sed 's/"//g' | sort | uniq > ./$file.buildLoci.geneIds
+
+        # --------------------------------------------------------------------
+        # Get the txs Ids
+        # --------------------------------------------------------------------
+        cat ./$file.lncRNAs.hg38.gene.gtf | awk '$3=="exon"{print $12}' | sed 's/;//g'| sed 's/"//g'| sort | uniq > ./$file.buildLoci.txIds
+
+        echo '>> Done <<'
+        ###################################
+        echo 'Generating plot input data'
+        # --------------------------------------------------------------------
+        fl=`cat ./Fl/$file.fl.tx.tsv | wc -l`
+        total=`zcat ./$file.bed12.gz | cut -f4 | sort | uniq | wc -l`
+        propFl=`echo $fl / $total | bc -l`
+        gene=`cat ./$file.buildLoci.geneIds | sort | uniq | wc -l`
+        tx=`cat ./$file.buildLoci.txIds | sort | uniq | wc -l`
+        nbTx=`echo $tx / $gene | bc -l`
+        echo -e "$file\t$propFl\t$gene\t$nbTx" >> ../../Barbie_plots/plot_input.tsv
+
+    done < ./human_catalogs.config
+
+
+# Return
+echo '################## COMPLETED ##################'
+```
+
+
+# Rename catalogs here
+```{r}
+# Clean the env
+rm(list = ls())
+
+df <- read.table("plot_input.tsv", header = F, as.is = T, sep = "\t") %>%
+  rename(
+    Catalogue = "V1",
+    fl = "V2",
+    gene = "V3",
+    Isoforms = "V4"
+  ) %>% 
+  mutate(Catalogue = ifelse(Catalogue == "all_concatenated_formatted", "Concatenated transcripts", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "all_concatenated_lncRNA_CPAT", "CPAT lncRNAs", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "all_concatenated_lncRNA_CPC2", "CPC2 lncRNAs", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "all_concatenated_lncRNA_CPAT+CPC2", "intersected lncRNAs", Catalogue)) %>%
+  
+  mutate(Catalogue = ifelse(Catalogue == "all_concatenated_lncRNA_CPAT+CPC2_SS500", "CapTrap-CLS lncRNAs", Catalogue)) %>%  
+    
+  mutate(Catalogue = ifelse(Catalogue == "all_concatenated_pc_CPAT", "CPAT pc", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "all_concatenated_pc_CPC2", "CPC2 pc", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "all_concatenated_pc_CPAT+CPC2", "Intersecting pc", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "ensembl104_GRCz11_pc", "protein coding (v104)", Catalogue)) %>%
+  
+  mutate(Catalogue = ifelse(Catalogue == "gencode47_GRCh38_pc_conf", "protein coding (v47)", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "gencode_v47_long_noncoding_RNAs", "GENCODE v47", Catalogue)) %>%
+  
+  mutate(Catalogue = ifelse(Catalogue == "mergedToEnsemblRef", "mergedToEnsemblRef", Catalogue)) %>%
+
+  mutate(Catalogue = ifelse(Catalogue == "ensembl+", "ENSEMBL+", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "ensembl++", "ENSEMBL++", Catalogue)) %>%
+  
+  mutate(Catalogue = ifelse(Catalogue == "all_tmerged", "Merged transcripts", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "ensembl104_GRCz11_lncRNA", "ENSEMBL v104", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "ensembl113_GRCz11_lncRNA", "ENSEMBL v113", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "lncRbaseV2_GRCz11_lncRNA", "lncRbaseV2", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "refseq_GRCz11_lncRNA", "RefSeq", Catalogue)) %>%
+  mutate(Catalogue = ifelse(Catalogue == "ZFLNC_GRCz11_lncRNA", "ZFLNC", Catalogue))
+  
+# Preview
+df
+```
+
+# Barbie plot - TECHNICAL
+```{r}
+cbPalette <- c("#a5a5a5", "#cccccc", "#36caf8", "#90e0ef", "#00b4d8",
+               "#ffe5ec", "#ffc2d1", "#ffb3c6", "#ff8fab", "#fb6f92",
+               "#f7e49a", "#f8a656", "#94cae3", "#f48170",
+               "#e4b7d5", "#8b8bc3", "#fece79", "#a0d9d9",
+               "#a0d9d9")
+
+df %>%
+  filter(Catalogue=="Concatenated transcripts"
+         | Catalogue=="Merged transcripts"
+         | Catalogue=="mergedToEnsemblRef"
+         
+         | Catalogue=="ENSEMBL+"
+         | Catalogue=="ENSEMBL++"
+         
+         | Catalogue=="CPAT lncRNAs"
+         | Catalogue=="CPC2 lncRNAs"
+         | Catalogue=="intersected lncRNAs"
+         | Catalogue=="CapTrap-CLS lncRNAs"
+         | Catalogue=="CPAT pc"
+         | Catalogue=="CPC2 pc"
+         | Catalogue=="Intersecting pc"
+         | Catalogue=="protein coding (v104)"
+         | Catalogue=="protein coding (v47)"
+         | Catalogue=="GENCODE v47"
+         | Catalogue=="ENSEMBL v104"
+         | Catalogue=="lncRbaseV2"
+         | Catalogue=="RefSeq"
+         | Catalogue=="ZFLNC") -> Z_1_TECHNICAL_plot_input
+
+Z_1_TECHNICAL_plot_input %>% 
+  ggplot(data=., aes(x=gene, y=fl, size=Isoforms, fill=factor(Catalogue,
+                                                              levels=c("Concatenated transcripts",
+                                                                       "Merged transcripts",
+                                                                       "mergedToEnsemblRef",
+                                                                       "ENSEMBL+",
+                                                                       "ENSEMBL++",
+                                                                       "CPAT pc",
+                                                                       "CPC2 pc",
+                                                                       "Intersecting pc",
+                                                                       "protein coding (v104)",
+                                                                       "protein coding (v47)",
+                                                                       "CPAT lncRNAs",
+                                                                       "CPC2 lncRNAs",
+                                                                       "GENCODE v47",
+                                                                       "intersected lncRNAs",
+                                                                       "CapTrap-CLS lncRNAs",
+                                                                       "ENSEMBL v104",
+                                                                       "lncRbaseV2",
+                                                                       "RefSeq",
+                                                                       "ZFLNC")))) +
+  geom_point(shape = 21, alpha = 0.75) +
+  geom_label_repel(aes(label = Catalogue),
+                   box.padding   = 0.35,
+                   size = 4, 
+                   point.padding = 0.5,
+                   segment.color = 'grey50') +
+  ylab("% Support") +
+  scale_fill_manual(values = cbPalette)+ theme_bw(base_size = 24) +
+  xlab("Number of loci") +
+  #ggtitle("") +
+  scale_x_continuous(lim=c(0,50000), breaks=seq(0,50000, by=10000)) +
+  scale_y_continuous(labels=percent, lim=c(0,1.0)) +
+  theme(axis.text.x = element_text(vjust=0.5),legend.text = element_text(size=12.5)) +
+  theme(axis.line.x = element_line(colour = "black"),
+  axis.line.y = element_line(colour = "black"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  strip.background = element_rect(colour="black",fill="white")) +
+  scale_size_area(max_size = 17) +
+  guides(fill = guide_legend(override.aes = list(size=6.5),
+                             title = "Catalogue")) -> Z_1_TECHNICAL_plot
+
+# Display plot input
+Z_1_TECHNICAL_plot_input
+
+# Preview plot
+Z_1_TECHNICAL_plot
+```
+
+# Save plot and input
+```{r}
+# Save input
+Z_1_TECHNICAL_plot_input %>% 
+  write.table(file='../../Plots/Barbie_plots/Inputs/Z_1_TECHNICAL_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf("../../Plots/Barbie_plots/Z_1_TECHNICAL_plot.pdf", bg = "white", width = 14, height = 9)
+Z_1_TECHNICAL_plot
+```
+
+
+# Barbie plot <- simplified version for introduction
+```{r}
+cbPalette <- c("#a5a5a5", "#a5a5a5",
+               #"#e3d5ca", "#e3d5ca", "#d5bdaf",
+               #"#f7e49a", "#a0d9d9",
+               "#c5e3ec", "#c5e3ec", "#c5e3ec", "#c5e3ec", "#c5e3ec",
+               
+               "#cccccc", "#cccccc",
+               "#f8a656", "#f48170", "#8b8bc3", "#94cae3",
+               "#a0d9d9", "#fece79")
+
+df %>%
+  filter(Catalogue=="protein coding (v104)"
+         | Catalogue=="protein coding (v47)"
+         | Catalogue=="GENCODE v47"
+         | Catalogue=="ENSEMBL v104"
+         | Catalogue=="lncRbaseV2"
+         | Catalogue=="RefSeq"
+         | Catalogue=="ZFLNC") -> Z_2_intro_plot_input
+
+Z_2_intro_plot_input %>% 
+  ggplot(data=., aes(x=gene, y=fl, size=Isoforms, fill=factor(Catalogue,
+                                                              levels=c("protein coding (v104)",
+                                                                       "protein coding (v47)",
+                                                                       "GENCODE v47",
+                                                                       "ENSEMBL v104",
+                                                                       "lncRbaseV2",
+                                                                       "RefSeq",
+                                                                       "ZFLNC")))) +
+  geom_point(shape = 21, alpha = 0.75) +
+  geom_label_repel(aes(label = Catalogue),
+                   box.padding   = 0.35,
+                   size = 4, 
+                   point.padding = 0.5,
+                   segment.color = 'grey50') +
+  ylab("% Support") +
+  scale_fill_manual(values = cbPalette)+ theme_bw(base_size = 24) +
+  xlab("Number of loci") +
+  #ggtitle("") +
+  scale_x_continuous(lim=c(0,50000), breaks=seq(0,50000, by=10000)) +
+  scale_y_continuous(labels=percent, lim=c(0,1.0)) +
+  theme(axis.text.x = element_text(vjust=0.5),legend.text = element_text(size=12.5)) +
+  theme(axis.line.x = element_line(colour = "black"),
+  axis.line.y = element_line(colour = "black"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  strip.background = element_rect(colour="black",fill="white")) +
+  scale_size_area(max_size = 17) +
+  guides(fill = guide_legend(override.aes = list(size=6.5),
+                             title = "Catalogue")) -> Z_2_intro_plot
+
+# Display plot input
+Z_2_intro_plot_input
+
+# Preview plot
+Z_2_intro_plot
+```
+
+# Save plot and input
+```{r}
+# Save input
+Z_2_intro_plot_input %>% 
+  write.table(file='../../Plots/Barbie_plots/Inputs/Z_2_intro_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf("../../Plots/Barbie_plots/Z_2_intro_plot.pdf", bg = "white", width = 14, height = 9)
+Z_2_intro_plot
+```
+
+
+
+# Barbie plot <- extended version for SI
+```{r}
+cbPalette <- c("#a5a5a5", "#a5a5a5",
+               "#f7e49a", "#f7e49a", "#d9ed92",
+               #"#d9ed92", "#d9ed92", "#99d98c",
+               "#99d98c", "#90d5ec", "#00b4d8",
+               "#c5e3ec", "#c5e3ec", "#c5e3ec", "#c5e3ec", "#c5e3ec",
+               
+               "#cccccc", "#cccccc",
+               "#f8a656", "#f48170", "#8b8bc3", "#94cae3",
+               "#a0d9d9", "#fece79")
+
+df %>%
+  filter(Catalogue=="CPAT lncRNAs"
+         | Catalogue=="CPC2 lncRNAs"
+         | Catalogue=="intersected lncRNAs"
+         | Catalogue=="CapTrap-CLS lncRNAs"
+         | Catalogue=="ENSEMBL+"
+         | Catalogue=="ENSEMBL++"
+         | Catalogue=="protein coding (v104)"
+         | Catalogue=="protein coding (v47)"
+         | Catalogue=="GENCODE v47"
+         | Catalogue=="ENSEMBL v104"
+         | Catalogue=="lncRbaseV2"
+         | Catalogue=="RefSeq"
+         | Catalogue=="ZFLNC") -> Z_2_supp_plot_input
+
+Z_2_supp_plot_input %>% 
+  ggplot(data=., aes(x=gene, y=fl, size=Isoforms, fill=factor(Catalogue,
+                                                              levels=c("protein coding (v104)",
+                                                                       "protein coding (v47)",
+                                                                       "CPAT lncRNAs",
+                                                                       "CPC2 lncRNAs",
+                                                                       "intersected lncRNAs",
+                                                                       "CapTrap-CLS lncRNAs",
+                                                                       "ENSEMBL+",
+                                                                       "ENSEMBL++",
+                                                                       "GENCODE v47",
+                                                                       "ENSEMBL v104",
+                                                                       "lncRbaseV2",
+                                                                       "RefSeq",
+                                                                       "ZFLNC")))) +
+  geom_point(shape = 21, alpha = 0.75) +
+  geom_label_repel(aes(label = Catalogue),
+                   box.padding   = 0.35,
+                   size = 4, 
+                   point.padding = 0.5,
+                   segment.color = 'grey50') +
+  ylab("% Support") +
+  scale_fill_manual(values = cbPalette)+ theme_bw(base_size = 24) +
+  xlab("Number of loci") +
+  #ggtitle("") +
+  scale_x_continuous(lim=c(0,50000), breaks=seq(0,50000, by=10000)) +
+  scale_y_continuous(labels=percent, lim=c(0,1.0)) +
+  theme(axis.text.x = element_text(vjust=0.5),legend.text = element_text(size=12.5)) +
+  theme(axis.line.x = element_line(colour = "black"),
+  axis.line.y = element_line(colour = "black"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  strip.background = element_rect(colour="black",fill="white")) +
+  scale_size_area(max_size = 17) +
+  guides(fill = guide_legend(override.aes = list(size=6.5),
+                             title = "Catalogue")) -> Z_2_supp_plot
+
+
+# Display plot input
+Z_2_supp_plot_input
+
+# Preview plot
+Z_2_supp_plot
+```
+
+# Save plot and input
+```{r}
+# Save input
+Z_2_supp_plot_input %>% 
+  write.table(file='../../Plots/Barbie_plots/Inputs/Z_2_supp_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf("../../Plots/Barbie_plots/Z_2_supp_plot.pdf", bg = "white", width = 14, height = 9)
+Z_2_supp_plot
+```
+
+
+
+
+# Provoke error to stop processing
+```{r}
+youshellnotpass
+```
+
+
+# Junk below
+```{bash, engine.opts='-l'}
+
+
+
+##########################################################################################
+# Handle errors
+##########################################################################################
+set -e          # exit on any non-0 exit status
+set -o pipefail # exit on any non-0 exit status in pipe
+
+
+
+
+##########################################################################################
+# Move to working dir
+##########################################################################################
+cd ../.temp/barbie_plots/
+
+
+
+
+##########################################################################################
+##########################################################################################
+# Generate data for Zebrafish barbie plot
+##########################################################################################
+##########################################################################################
+
+##########################################################################################
+# % Support
+##########################################################################################
+
+echo 'Get fl-tx'
+
+while read file || [ -n "$file" ]
+    do
+        echo $file
+        zcat ./danio_catalogs/$file.gtf.gz | ../../../Utils/gff2bed_full.pl - | awk 'BEGIN{FS=OFS="\t"}$6!="."' | awk '$1 ~ /^chr[0-9XYM]{1,2}$/ {print $0}' | awk '$10 > 1 {print $0}' | gzip > ./$file.bed12.gz
+
+        while read end
+        do
+            echo $end
+            zcat ./$file.bed12.gz | ../../../Utils/extractTranscriptEndsFromBed12.pl $end | ../../../Utils/sortbed | gzip > ./$file.$end.bed.gz
+        done < ./ends.config
+
+        ## polyA
+        echo '++++++ Looking for polyA supported TM ++++++'
+        while read end
+        do
+            zcat ./$file.$end.bed.gz | ../../../Utils/sortbed | bedtools slop -s -l 50 -r 10 -i stdin -g ../../Source/Additional/danRer11.chrom.sizes | bedtools intersect -u -s -a stdin -b ./danRer11_polyAsites.bed | gzip > ./$file.$end.bed.vspolyAsignals.bedtsv.gz
+        done < ./ends.config
+        echo '>> Done <<'
+
+        ## CAGE FANTOM phase 1+2
+        echo '++++++ Looking for CAGE supported TM ++++++'
+        while read end
+        do
+            zcat ./$file.$end.bed.gz | ../../../Utils/sortbed | bedtools slop -s -l 50 -r 50 -i stdin -g ../../Source/Additional/danRer11.chrom.sizes | bedtools intersect -u -s -a stdin -b ./danRer11_CAGE.bed | gzip > ./$file.$end.bed.vsCage.fantom.bedtsv.gz
+        done < ./ends.config
+        echo '>> Done <<'
+
+        ## Extract Cage and polyA supported transcripts
+        echo '++++++ Extracting CAGE and polyA supported transcripts ++++++'
+        zcat ./$file.5.bed.vsCage.fantom.bedtsv.gz | cut -f4 | sed 's/,/\n/g' | sort | uniq > ./$file.tx.cage
+        zcat ./$file.3.bed.vspolyAsignals.bedtsv.gz | cut -f4 | sed 's/,/\n/g' | sort | uniq > ./$file.tx.polyA
+        echo '>> Done <<'
+
+        ## Get fl-tx for Unified
+        ../../../Utils/join.py -a ./$file.tx.cage -b ./$file.tx.polyA -x 1 -y 1 > ./Fl/$file.fl.tx.tsv
+
+        echo '++++++ Aquiring geneIds and txIds ++++++'
+        # --------------------------------------------------------------------
+        # GTF from danRer11.bed12
+        # --------------------------------------------------------------------
+        zcat ./$file.bed12.gz | ../../../Utils/bed12togff - > ./$file.lncRNAs.danRer11.gtf
+
+        # --------------------------------------------------------------------
+        # build the gene ids
+        # --------------------------------------------------------------------
+        echo $full_name
+        bedtools intersect -s -wao -a ./$file.lncRNAs.danRer11.gtf -b ./$file.lncRNAs.danRer11.gtf | ../../../Utils/buildLoci.pl - > ./$file.lncRNAs.danRer11.gene.tmp.gtf
+        ../../../Utils/gff2gff.pl ./$file.lncRNAs.danRer11.gene.tmp.gtf > ./$file.lncRNAs.danRer11.gene.gtf
+
+        # --------------------------------------------------------------------
+        # get the gene ids from the danRer11.gtfs
+        # --------------------------------------------------------------------
+        cat ./$file.lncRNAs.danRer11.gene.gtf | awk '{print $10}' | sed 's/;//g' | sed 's/"//g' | sort | uniq > ./$file.buildLoci.geneIds
+
+        # --------------------------------------------------------------------
+        # Get the txs Ids
+        # --------------------------------------------------------------------
+        cat ./$file.lncRNAs.danRer11.gene.gtf | awk '$3=="exon"{print $12}' | sed 's/;//g'| sed 's/"//g'| sort | uniq > ./$file.buildLoci.txIds
+
+        echo '>> Done <<'
+        ###################################
+        echo 'Generating plot input data'
+        # --------------------------------------------------------------------
+        fl=`cat ./Fl/$file.fl.tx.tsv | wc -l`
+        total=`zcat ./$file.bed12.gz | cut -f4 | sort | uniq | wc -l`
+        propFl=`echo $fl / $total | bc -l`
+        gene=`cat ./$file.buildLoci.geneIds | sort | uniq | wc -l`
+        tx=`cat ./$file.buildLoci.txIds | sort | uniq | wc -l`
+        nbTx=`echo $tx / $gene | bc -l`
+        echo -e "$file\t$propFl\t$gene\t$nbTx" >> ../../Barbie_plots/plot_input.tsv
+
+    done < ./temp.config
+    
+    
+
+
+
+# Return
+echo '################## COMPLETED ##################'
+```
+
+
+
+
