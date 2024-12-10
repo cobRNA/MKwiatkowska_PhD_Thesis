@@ -1,0 +1,354 @@
+  ______                                  __                 __      __                                        __                 __               
+ /      \                                |  \               |  \    |  \                                      |  \               |  \              
+|  $$$$$$\ _______   _______    ______  _| $$_     ______  _| $$_    \$$  ______   _______          _______  _| $$_     ______  _| $$_     _______ 
+| $$__| $$|       \ |       \  /      \|   $$ \   |      \|   $$ \  |  \ /      \ |       \        /       \|   $$ \   |      \|   $$ \   /       \
+| $$    $$| $$$$$$$\| $$$$$$$\|  $$$$$$\\$$$$$$    \$$$$$$\\$$$$$$  | $$|  $$$$$$\| $$$$$$$\      |  $$$$$$$ \$$$$$$    \$$$$$$\\$$$$$$  |  $$$$$$$
+| $$$$$$$$| $$  | $$| $$  | $$| $$  | $$ | $$ __  /      $$ | $$ __ | $$| $$  | $$| $$  | $$       \$$    \   | $$ __  /      $$ | $$ __  \$$    \ 
+| $$  | $$| $$  | $$| $$  | $$| $$__/ $$ | $$|  \|  $$$$$$$ | $$|  \| $$| $$__/ $$| $$  | $$       _\$$$$$$\  | $$|  \|  $$$$$$$ | $$|  \ _\$$$$$$\
+| $$  | $$| $$  | $$| $$  | $$ \$$    $$  \$$  $$ \$$    $$  \$$  $$| $$ \$$    $$| $$  | $$      |       $$   \$$  $$ \$$    $$  \$$  $$|       $$
+ \$$   \$$ \$$   \$$ \$$   \$$  \$$$$$$    \$$$$   \$$$$$$$   \$$$$  \$$  \$$$$$$  \$$   \$$       \$$$$$$$     \$$$$   \$$$$$$$   \$$$$  \$$$$$$$ 
+                                                                                                                                                   
+                                                                                                                                                   
+# Prepare environment
+```{bash, engine.opts='-l'}
+######################################################################################
+# Annotations were downloaded from GENCODE and ENSEMBL
+# -> check ../Source/Additional/download_data.sh
+# Zebrafish ENSEMBL lncRNA annotation was produced using:
+# ../lncRNA_catalogs/make_lncRNA_catalogs.sh script
+
+# Summary:
+##########################################################################################
+## For downloaded Human, Mouse, Zebrafish annotations:
+## - Calculate basic stats: number of protein coding/lncRNA genes/transcripts;
+## - For Zebrafish lncRNA annot, output from:
+##   ../lncRNA_catalogs/make_lncRNA_catalogs.sh script was used.
+##########################################################################################
+
+##########################################################################################
+# Remove files from previous run
+##########################################################################################
+rm -r ./annotation_stats.tsv
+
+
+##########################################################################################
+# Create directory tree
+##########################################################################################
+mkdir -p ../../Plots/Annotation_stats/
+mkdir -p ../../Plots/Annotation_stats/Inputs/
+
+
+##########################################################################################
+# Handle errors
+##########################################################################################
+set -e          # exit on any non-0 exit status
+set -o pipefail # exit on any non-0 exit status in pipe
+
+##########################################################################################
+# Create LOG file
+##########################################################################################
+printf -v date '%(%Y-%m-%d_%H:%M)T' -1   # write current date to $date variable
+LOG_LOCATION=../../Logs/calculate_annot_stats.$date.log
+exec > >(tee -i $LOG_LOCATION)
+exec 2>&1
+
+echo "Log saved to: [ $LOG_LOCATION ]"
+
+##########################################################################################
+# Processing
+##########################################################################################
+# Create output file header
+echo -e "annotation\tspecies\tpc_genes\tpc_transcripts\tpc_isoforms\tlncRNA_genes\tlncRNA_transcripts\tlncRNA_isoforms" > annotation_stats.tsv
+
+# Calculate stats:
+####################################
+# Human GENCODE anotation (v47)
+####################################
+echo '@ Processing Human GENCODE anotation (v47) ++++++'
+## Protein coding genes
+GEN_v47_pc_genes=`zcat ../Source/Additional/gencode.v47.annotation.gtf.gz | grep -Fw "gene_type \"protein_coding\";" | ../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" | wc -l`
+## Protein coding transcripts
+GEN_v47_pc_transcripts=`zcat ../Source/Additional/gencode.v47.annotation.gtf.gz | grep -Fw "transcript_type \"protein_coding\";" | ../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" | wc -l`
+## Calculate protein coding isoforms
+GEN_v47_pc_isoforms=`echo $GEN_v47_pc_transcripts / $GEN_v47_pc_genes | bc -l`
+## lncRNA genes
+GEN_v47_lncRNA_genes=`zcat ../Source/Additional/gencode.v47.long_noncoding_RNAs.gtf.gz | ../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" | wc -l`
+## lncRNA transcripts
+GEN_v47_lncRNA_transcripts=`zcat ../Source/Additional/gencode.v47.long_noncoding_RNAs.gtf.gz | ../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" | wc -l`
+## Calculate lncRNA isoforms
+GEN_v47_lncRNA_isoforms=`echo $GEN_v47_lncRNA_transcripts / $GEN_v47_lncRNA_genes | bc -l`
+## Report values to file
+echo -e "GENCODE.v47\thuman\t$GEN_v47_pc_genes\t$GEN_v47_pc_transcripts\t$GEN_v47_pc_isoforms\t$GEN_v47_lncRNA_genes\t$GEN_v47_lncRNA_transcripts\t$GEN_v47_lncRNA_isoforms" >> annotation_stats.tsv
+echo '>> Done <<'
+
+####################################
+# Mouse GENCODE anotation (vM36)
+####################################
+echo '@ Processing Mouse GENCODE anotation (vM36) ++++++'
+## Protein coding genes
+GEN_vM36_pc_genes=`zcat ../Source/Additional/gencode.vM36.annotation.gtf.gz | grep -Fw "gene_type \"protein_coding\";" | ../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" | wc -l`
+## Protein coding transcripts
+GEN_vM36_pc_transcripts=`zcat ../Source/Additional/gencode.vM36.annotation.gtf.gz | grep -Fw "transcript_type \"protein_coding\";" | ../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" | wc -l`
+## Calculate protein coding isoforms
+GEN_vM36_pc_isoforms=`echo $GEN_vM36_pc_transcripts / $GEN_vM36_pc_genes | bc -l`
+## lncRNA genes
+GEN_vM36_lncRNA_genes=`zcat ../Source/Additional/gencode.vM36.long_noncoding_RNAs.gtf.gz | ../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" | wc -l`
+## lncRNA transcripts
+GEN_vM36_lncRNA_transcripts=`zcat ../Source/Additional/gencode.vM36.long_noncoding_RNAs.gtf.gz | ../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" | wc -l`
+## Calculate lncRNA isoforms
+GEN_vM36_lncRNA_isoforms=`echo $GEN_vM36_lncRNA_transcripts / $GEN_vM36_lncRNA_genes | bc -l`
+## Report values to file
+echo -e "GENCODE.vM36\tmouse\t$GEN_vM36_pc_genes\t$GEN_vM36_pc_transcripts\t$GEN_vM36_pc_isoforms\t$GEN_vM36_lncRNA_genes\t$GEN_vM36_lncRNA_transcripts\t$GEN_vM36_lncRNA_isoforms" >> annotation_stats.tsv
+echo '>> Done <<'
+
+####################################
+# Zebrafish ENSEMBL anotation (v104)
+####################################
+echo '@ Processing Zebrafish ENSEMBL anotation (v104) ++++++'
+## Protein coding genes
+ENS_v104_pc_genes=`zcat ../Source/Annotations/ensembl104_GRCz11.gtf.gz | grep -Fw "gene_biotype \"protein_coding\";" | ../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" | wc -l`
+## Protein coding transcripts
+ENS_v104_pc_transcripts=`zcat ../Source/Annotations/ensembl104_GRCz11.gtf.gz | grep -Fw "transcript_biotype \"protein_coding\";" | ../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" | wc -l`
+## Calculate protein coding isoforms
+ENS_v104_pc_isoforms=`echo $ENS_v104_pc_transcripts / $ENS_v104_pc_genes | bc -l`
+## lncRNA genes
+ENS_v104_lncRNA_genes=`zcat ../lncRNA_catalogs/output/ensembl104_GRCz11_lncRNA.gtf.gz | ../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" | wc -l `
+## lncRNA transcripts
+ENS_v104_lncRNA_transcripts=`zcat ../lncRNA_catalogs/output/ensembl104_GRCz11_lncRNA.gtf.gz | ../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" | wc -l `
+## Calculate lncRNA isoforms
+ENS_v104_lncRNA_isoforms=`echo $ENS_v104_lncRNA_transcripts / $ENS_v104_lncRNA_genes | bc -l`
+## Report values to file
+echo -e "ENSEMBL.v104\tzebrafish\t$ENS_v104_pc_genes\t$ENS_v104_pc_transcripts\t$ENS_v104_pc_isoforms\t$ENS_v104_lncRNA_genes\t$ENS_v104_lncRNA_transcripts\t$ENS_v104_lncRNA_isoforms" >> annotation_stats.tsv
+echo '>> Done <<'
+
+####################################
+# Zebrafish ENSEMBL anotation (v113)
+####################################
+echo '@ Processing Zebrafish ENSEMBL anotation (v113) ++++++'
+## Protein coding genes
+ENS_v113_pc_genes=`zcat ../Source/Annotations/ensembl113_GRCz11.gtf.gz | grep -Fw "gene_biotype \"protein_coding\";" | ../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" | wc -l`
+## Protein coding transcripts
+ENS_v113_pc_transcripts=`zcat ../Source/Annotations/ensembl113_GRCz11.gtf.gz | grep -Fw "transcript_biotype \"protein_coding\";" | ../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" | wc -l`
+## Calculate protein coding isoforms
+ENS_v113_pc_isoforms=`echo $ENS_v113_pc_transcripts / $ENS_v113_pc_genes | bc -l`
+## lncRNA genes
+ENS_v113_lncRNA_genes=`zcat ../lncRNA_catalogs/output/ensembl113_GRCz11_lncRNA.gtf.gz | ../../Utils/extract.gtf.tags.sh - gene_id | sort | uniq | grep "\S" | wc -l `
+## lncRNA transcripts
+ENS_v113_lncRNA_transcripts=`zcat ../lncRNA_catalogs/output/ensembl113_GRCz11_lncRNA.gtf.gz | ../../Utils/extract.gtf.tags.sh - transcript_id | sort | uniq | grep "\S" | wc -l `
+## Calculate lncRNA isoforms
+ENS_v113_lncRNA_isoforms=`echo $ENS_v113_lncRNA_transcripts / $ENS_v113_lncRNA_genes | bc -l`
+## Report values to file
+echo -e "ENSEMBL.v113\tzebrafish\t$ENS_v113_pc_genes\t$ENS_v113_pc_transcripts\t$ENS_v113_pc_isoforms\t$ENS_v113_lncRNA_genes\t$ENS_v113_lncRNA_transcripts\t$ENS_v113_lncRNA_isoforms" >> annotation_stats.tsv
+echo '>> Done <<'
+
+# Report completeness
+echo "######### COMPLETED #########"
+```
+
+# Load R libraries
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(ggplot2,
+               scales,
+               dplyr,
+               tidyr,
+               ggh4x)
+```
+
+# Clean env from unwanted variables and objects
+```{r}
+# Clean the env
+rm(list = ls())
+```
+
+# Plots
+```{r}
+# Clean the env
+rm(list = ls())
+
+###########################################
+### genes_plot
+###########################################
+# Set colot palette
+cbPalette_genes <- c("#36caf8", "#ffb3c6")
+
+# Read data from file
+read.table("annotation_stats.tsv", header = T, as.is = T, sep = "\t") %>% 
+  filter(annotation!="ENSEMBL.v113") %>%
+  select(annotation, species, pc_genes, lncRNA_genes) %>% 
+  pivot_longer(cols=c("pc_genes", "lncRNA_genes"),
+                    names_to="category",
+                    values_to="count") %>% 
+  mutate(annotation = ifelse(annotation == "GENCODE.v47", "GENCODE v47", annotation)) %>%
+  mutate(annotation = ifelse(annotation == "GENCODE.vM36", "GENCODE vM36", annotation)) %>%
+  mutate(annotation = ifelse(annotation == "ENSEMBL.v104", "ENSEMBL v104", annotation)) %>%
+  mutate(category = ifelse(category == "pc_genes", "Protein coding", category)) %>%
+  mutate(category = ifelse(category == "lncRNA_genes", "lncRNA", category)) -> genes_plot_input
+  
+# Plot
+genes_plot_input %>% 
+  ggplot(aes(x=category,
+             y=count,
+             fill=factor(category, levels=c("lncRNA", "Protein coding")))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = scales::comma(count)),
+            vjust=-0.3,
+            size = 3.5) +
+  scale_fill_manual(values = cbPalette_genes) +
+  theme_bw() +
+  ggtitle("Stats for coding and noncoding genes") +
+  ylab("# annotated genes") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        legend.title = element_blank(),
+        legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_nested_wrap(~species) +
+  theme(strip.text.x = element_text(size = 14)) -> genes_plot
+
+
+###########################################
+### transcripts_plot
+###########################################
+# Set colot palette
+cbPalette_transcripts <- c("#36caf8", "#ffb3c6")
+
+# Read data from file
+read.table("annotation_stats.tsv", header = T, as.is = T, sep = "\t") %>% 
+  filter(annotation!="ENSEMBL.v113") %>%
+  select(annotation, species, pc_transcripts, lncRNA_transcripts) %>% 
+  pivot_longer(cols=c("pc_transcripts", "lncRNA_transcripts"),
+                    names_to="category",
+                    values_to="count") %>% 
+  mutate(annotation = ifelse(annotation == "GENCODE.v47", "GENCODE v47", annotation)) %>%
+  mutate(annotation = ifelse(annotation == "GENCODE.vM36", "GENCODE vM36", annotation)) %>%
+  mutate(annotation = ifelse(annotation == "ENSEMBL.v104", "ENSEMBL v104", annotation)) %>%
+  mutate(category = ifelse(category == "pc_transcripts", "Protein coding", category)) %>%
+  mutate(category = ifelse(category == "lncRNA_transcripts", "lncRNA", category)) -> transcripts_plot_input
+  
+# Plot
+transcripts_plot_input %>% 
+  ggplot(aes(x=category,
+             y=count,
+             fill=factor(category, levels=c("lncRNA", "Protein coding")))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = scales::comma(count)),
+            vjust=-0.3,
+            size = 3.5) +
+  scale_fill_manual(values = cbPalette_transcripts) +
+  theme_bw() +
+  ggtitle("Stats for coding and noncoding transcripts") +
+  ylab("# annotated transcripts") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        legend.title = element_blank(),
+        legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_nested_wrap(~species) +
+  theme(strip.text.x = element_text(size = 14)) -> transcripts_plot
+
+
+###########################################
+### transcripts_plot
+###########################################
+# Set colot palette
+cbPalette_isoforms <- c("#99d98c", "#f7e49a", "#90d5ec")
+
+# Read data from file
+read.table("annotation_stats.tsv", header = T, as.is = T, sep = "\t") %>% 
+  filter(annotation!="ENSEMBL.v113") %>%
+  select(annotation, species, pc_isoforms, lncRNA_isoforms) %>% 
+  pivot_longer(cols=c("pc_isoforms", "lncRNA_isoforms"),
+                    names_to="category",
+                    values_to="count") %>% 
+  mutate(annotation = ifelse(annotation == "GENCODE.v47", "GENCODE v47", annotation)) %>%
+  mutate(annotation = ifelse(annotation == "GENCODE.vM36", "GENCODE vM36", annotation)) %>%
+  mutate(annotation = ifelse(annotation == "ENSEMBL.v104", "ENSEMBL v104", annotation)) %>%
+  mutate(category = ifelse(category == "pc_isoforms", "Isoforms per coding gene", category)) %>%
+  mutate(category = ifelse(category == "lncRNA_isoforms", "Isoforms per noncoding gene", category)) -> isoforms_plot_input
+  
+# Plot
+isoforms_plot_input %>% 
+  ggplot(aes(x=species,
+             y=count,
+             fill=factor(species, levels=c("human", "mouse", "zebrafish")))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = scales::comma(count)),
+            vjust=-0.3,
+            size = 3.5) +
+  scale_fill_manual(values = cbPalette_isoforms) +
+  theme_bw() +
+  ggtitle("Isoforms for coding and noncoding gene") +
+  ylab("# isoforms per gene") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        legend.title = element_blank(),
+        legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_nested_wrap(~category) +
+  theme(strip.text.x = element_text(size = 14)) -> isoforms_plot
+
+
+
+# Display plot input
+genes_plot_input
+transcripts_plot_input
+isoforms_plot_input
+
+# Preview plot
+genes_plot
+transcripts_plot
+isoforms_plot
+```
+
+# Save plot and input - GENES
+```{r}
+# Save input
+genes_plot_input %>% 
+  write.table(file='../../Plots/Annotation_stats/Inputs/genes_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf("../../Plots/Annotation_stats/genes_plot.pdf", bg = "white", width = 7, height = 5)
+genes_plot
+```
+
+# Save plot and input - TRANSCRIPTS
+```{r}
+# Save input
+transcripts_plot_input %>% 
+  write.table(file='../../Plots/Annotation_stats/Inputs/transcripts_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf("../../Plots/Annotation_stats/transcripts_plot.pdf", bg = "white", width = 7, height = 5)
+transcripts_plot
+```
+
+# Save plot and input - ISOFORMS
+```{r}
+# Save input
+isoforms_plot_input %>% 
+  write.table(file='../../Plots/Annotation_stats/Inputs/isoforms_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf("../../Plots/Annotation_stats/isoforms_plot.pdf", bg = "white", width = 10, height = 5)
+isoforms_plot
+```
+
