@@ -1,0 +1,1752 @@
+  ______                   __  __                                                   __                           __      __            __ 
+ /      \                 |  \|  \                                                 |  \                         |  \    |  \          |  \
+|  $$$$$$\  ______    ____| $$ \$$ _______    ______            ______    ______  _| $$_     ______   _______  _| $$_    \$$  ______  | $$
+| $$   \$$ /      \  /      $$|  \|       \  /      \  ______  /      \  /      \|   $$ \   /      \ |       \|   $$ \  |  \ |      \ | $$
+| $$      |  $$$$$$\|  $$$$$$$| $$| $$$$$$$\|  $$$$$$\|      \|  $$$$$$\|  $$$$$$\\$$$$$$  |  $$$$$$\| $$$$$$$\\$$$$$$  | $$  \$$$$$$\| $$
+| $$   __ | $$  | $$| $$  | $$| $$| $$  | $$| $$  | $$ \$$$$$$| $$  | $$| $$  | $$ | $$ __ | $$    $$| $$  | $$ | $$ __ | $$ /      $$| $$
+| $$__/  \| $$__/ $$| $$__| $$| $$| $$  | $$| $$__| $$        | $$__/ $$| $$__/ $$ | $$|  \| $$$$$$$$| $$  | $$ | $$|  \| $$|  $$$$$$$| $$
+ \$$    $$ \$$    $$ \$$    $$| $$| $$  | $$ \$$    $$        | $$    $$ \$$    $$  \$$  $$ \$$     \| $$  | $$  \$$  $$| $$ \$$    $$| $$
+  \$$$$$$   \$$$$$$   \$$$$$$$ \$$ \$$   \$$ _\$$$$$$$        | $$$$$$$   \$$$$$$    \$$$$   \$$$$$$$ \$$   \$$   \$$$$  \$$  \$$$$$$$ \$$
+                                            |  \__| $$        | $$                                                                        
+                                             \$$    $$        | $$                                                                        
+                                              \$$$$$$          \$$                                                                        
+
+# Prepare environment
+```{bash, engine.opts='-l'}
+# Remove old results
+rm -r ../.temp/coding_potential/
+
+# Handle errors
+set -e          # exit on any non-0 exit status
+set -o pipefail # exit on any non-0 exit status in pipe
+#set -m
+
+# Create directory tree
+mkdir -p ../.temp/coding_potential/
+mkdir -p ../../Plots/Coding_potential/
+mkdir -p ../../Plots/Coding_potential/Inputs/
+
+# Move to working dir
+cd ../.temp/coding_potential/
+
+# Copy necessary files
+## CPAT output
+### Concat
+cp ../../Coding_potential/CPAT/output/concat.ORF_prob.best.tsv .
+cp ../../Coding_potential/CPAT/output/concat.no_ORF.txt .
+### Tmerged
+cp ../../Coding_potential/CPAT/output/tmerged.ORF_prob.best.tsv .
+cp ../../Coding_potential/CPAT/output/tmerged.no_ORF.txt .
+## CPC2 output
+### Concat
+cp ../../Coding_potential/CPC2/output/concat_output.tsv .
+### Tmerged
+cp ../../Coding_potential/CPC2/output/tmerged_output.tsv .
+## Concatenated samples
+zcat ../../Tmerge/output/all_concatenated.gtf.gz | awk '$1!="SIRVome_isoforms"' | ../../../Utils/gff2bed_full.pl - | sed 's/chrM/MT/g' | sed 's/chr//g' | awk '{print $1":"$2"-"$3"\t"$4"\t"$6}'> concatenated_ids.tsv
+## Gff-compare output from LyRic
+### Concatenate and remove header from ea file
+cat ../../Source/LyRic/gff_compare/* > gff_compare_output.tsv
+```
+
+
+# Load R libraries
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(ggplot2,
+               scales,
+               dplyr,
+               ggrepel,
+               tidyr,
+               stringr,
+               ggh4x)
+```
+
+# Clean env from unwanted variables and objects
+```{r}
+# Clean the env
+rm(list = ls())
+```
+
+
+   _____ _____     _______ 
+  / ____|  __ \ /\|__   __|
+ | |    | |__) /  \  | |   
+ | |    |  ___/ /\ \ | |   
+ | |____| |  / ____ \| |   
+  \_____|_| /_/    \_|_|   
+                           
+```{r}
+# Clean the env
+rm(list = ls())
+
+# Read output with probability
+df_prob <- read.table("../.temp/coding_potential/concat.ORF_prob.best.tsv", header=T, as.is=T, sep="\t") %>% 
+  mutate(label=ifelse((Coding_prob < 0.38), "noncoding", "coding")) %>% 
+  rename("Fickett_score"="Fickett")
+
+# Read transcripts without ORFs
+df_no_ORF <- read.table("../.temp/coding_potential/concat.no_ORF.txt", header=F, as.is=T, sep="\t")
+
+# Preview
+df_prob
+df_no_ORF
+
+# Plot
+cbPalette <- c("#ff99c8", "#a9def9", "lightgrey")
+
+# Barplot
+df_prob %>%
+  summarise(.by = "label",
+            count = n()) %>%
+  # Add TMs without ORFs
+  rbind(df_no_ORF %>%
+          summarise(label="no ORF",
+                    count=n())) %>%
+  # Reorder to use same palette for all plots
+  mutate(label=factor(label, levels=c("coding", "noncoding", "no ORF"))) %>%
+  arrange(label) %>% 
+  # Calculate percentage
+  mutate(percentage=count/sum(count)) %>% 
+  ggplot(aes(x=label,
+             y=percentage,
+             fill=label)) +
+  geom_bar(stat = "identity", color="black") +
+  geom_text(aes(label = scales::comma(count)),
+            vjust = -0.3,
+            size = 3.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Coding-Potential Assessment Tool (CPAT)\nconcatented samples") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> cpat_barplot
+
+# Density plot (Fickett_score)
+mu <- plyr::ddply(df_prob, "label", summarise, grp.mean=mean(Fickett_score))
+
+df_prob %>% 
+  ggplot(aes(x=Fickett_score, fill=label)) +
+  geom_density(alpha=0.7) +
+  geom_vline(data=mu, aes(xintercept=grp.mean, color=label),
+             linetype="dashed") +
+  scale_fill_manual(values = cbPalette) +
+  scale_color_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Coding-Potential Assessment Tool (CPAT)\nconcatented samples") +
+  ylab("density") +
+  xlab("Fickett score") +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        legend.title = element_blank(),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> cpat_fickett
+
+# Preview plots
+cpat_barplot
+cpat_fickett
+```
+
+# Save plot - CPAT barplot
+```{r}
+pdf(file="../../Plots/Coding_potential/CPAT_barplot.pdf", width = 5, height = 4)
+cpat_barplot
+```
+
+# Save plot - CPAT Fickett
+```{r}
+pdf(file="../../Plots/Coding_potential/CPAT_fickett.pdf", width = 5, height = 4)
+cpat_fickett
+```
+
+
+   _____ _____   _____ ___  
+  / ____|  __ \ / ____|__ \ 
+ | |    | |__) | |       ) |
+ | |    |  ___/| |      / / 
+ | |____| |    | |____ / /_ 
+  \_____|_|     \_____|____|
+  
+```{r}
+# Clean the env
+rm(list = ls())
+
+##ID	transcript_length	peptide_length	Fickett_score	pI	ORF_integrity	coding_probability	label
+
+df <- read.table("../.temp/coding_potential/concat_output.tsv", header=T, as.is=T, sep="\t") %>% 
+  rename("sequence_ID"="ID") %>% 
+  rename("isoelectric_point"="pI")
+
+# Preview
+df
+
+
+# Plot
+example <- c("#d8f3dc", "#b7e4c7", "#95d5b2", "#74c69d", "#52b788", "lightgrey", "darkgrey","#3E506C","#50868d","#58508d","#bc5090","#ff6362","#ffa602")
+
+cbPalette <- c("#ff99c8", "#a9def9")
+
+# Barplot
+df %>% 
+  summarise(.by = "label",
+            count = n()) %>% 
+  mutate(percentage=count/sum(count)) %>% 
+  ggplot(aes(x=label,
+             y=percentage,
+             fill=label)) +
+  geom_bar(stat = "identity", color="black") +
+  geom_text(aes(label = scales::comma(count)),
+            vjust = -0.3,
+            size = 3.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Coding-Potential Calculator 2 (CPC2)\nconcatented samples") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> cpc2_barplot
+
+# Density plot (Fickett_score)
+mu <- plyr::ddply(df, "label", summarise, grp.mean=mean(Fickett_score))
+
+df %>% 
+  ggplot(aes(x=Fickett_score, fill=label)) +
+  geom_density(alpha=0.7) +
+  geom_vline(data=mu, aes(xintercept=grp.mean, color=label),
+             linetype="dashed") +
+  scale_fill_manual(values = cbPalette) +
+  scale_color_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Coding-Potential Calculator 2 (CPC2)\nconcatented samples") +
+  ylab("density") +
+  xlab("Fickett score") +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        legend.title = element_blank(),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> cpc2_fickett
+
+# Density plot (isoelectric point)
+mu2 <- plyr::ddply(df, "label", summarise, grp.mean=mean(isoelectric_point))
+
+df %>% 
+  ggplot(aes(x=isoelectric_point, fill=label)) +
+  geom_density(alpha=0.7) +
+  geom_vline(data=mu2, aes(xintercept=grp.mean, color=label),
+             linetype="dashed") +
+  scale_fill_manual(values = cbPalette) +
+  scale_color_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Coding-Potential Calculator 2 (CPC2)\nconcatented samples") +
+  ylab("density") +
+  xlab("isoelectric point") +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        legend.title = element_blank(),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> cpc2_isoelectric
+
+# Preview plots
+cpc2_barplot
+cpc2_fickett
+cpc2_isoelectric
+```
+
+# Save plot - CPC2 barplot
+```{r}
+pdf(file="../../Plots/Coding_potential/CPC2_barplot.pdf", width = 5, height = 4)
+cpc2_barplot
+```
+
+# Save plot - CPC2 Fickett
+```{r}
+pdf(file="../../Plots/Coding_potential/CPC2_fickett.pdf", width = 5, height = 4)
+cpc2_fickett
+```
+
+# Save plot - CPC2 isoelectric point
+```{r}
+pdf(file="../../Plots/Coding_potential/CPC2_isoelectric.pdf", width = 5, height = 4)
+cpc2_isoelectric
+```
+
+
+
+ █████  ███    ██  █████  ██      ██    ██ ███████ ██ ███████ 
+██   ██ ████   ██ ██   ██ ██       ██  ██  ██      ██ ██      
+███████ ██ ██  ██ ███████ ██        ████   ███████ ██ ███████ 
+██   ██ ██  ██ ██ ██   ██ ██         ██         ██ ██      ██ 
+██   ██ ██   ████ ██   ██ ███████    ██    ███████ ██ ███████ 
+             
+     __                          _ _             
+  /\ \ \___  _ __   ___ ___   __| (_)_ __   __ _ 
+ /  \/ / _ \| '_ \ / __/ _ \ / _` | | '_ \ / _` |
+/ /\  / (_) | | | | (_| (_) | (_| | | | | | (_| |
+\_\ \/ \___/|_| |_|\___\___/ \__,_|_|_| |_|\__, |
+                                           |___/ 
+# Process data for:
+## - RNA_category_bar_plot
+## - RNA_category_facet_bar_plot
+## - RNA_category_facet_bar_PrePost_plot
+## - RNA_category_facet_bar_PrePost_SS500_plot
+```{r}
+# Clean the env
+rm(list = ls())
+
+# Process gff_compare data
+df_gff_compare <- read.table("../.temp/coding_potential/gff_compare_output.tsv", header=F, as.is=T, sep="\t") %>% 
+  rename("transcript_id"="V1") %>% 
+  rename("category"="V2")
+
+# Get all IDs
+df_ALL_IDs <- read.table("../.temp/coding_potential/concatenated_ids.tsv", header=F, as.is=T, sep="\t") %>% 
+  rename("sequence_ID"="V1") %>% 
+  rename("transcript_id"="V2") %>% 
+  rename("strand"="V3")
+
+
+# Assign samples info to transcripts (I'll extract it straight from tx id to not overcomplicate this)
+df_txIDs_with_samples_info <- df_ALL_IDs %>% 
+  select(transcript_id) %>% 
+  separate_wider_delim(cols = "transcript_id",
+                       delim = "_",
+                       names = c("technology", "capture_status", "replicate", "tissue"),
+                       too_many = "drop",
+                       cols_remove = FALSE) %>% 
+  mutate(across("tissue", str_replace, "Rep1.NAM", "")) %>% 
+  mutate(combined=str_c(capture_status, tissue, sep="_")) %>% 
+  mutate(capture_status=ifelse((capture_status=="Pre"), "Pre-capture (lncRNAs)", capture_status)) %>% 
+  mutate(capture_status=ifelse((capture_status=="Post"), "Post-capture (lncRNAs)", capture_status))
+  
+
+# Get CPAT noncoding IDs
+# Read output with probability
+df_CPAT_noncoding <- read.table("../.temp/coding_potential/concat.ORF_prob.best.tsv", header=T, as.is=T, sep="\t") %>% 
+  mutate(label=ifelse((Coding_prob < 0.38), "noncoding", "coding")) %>% 
+  filter(label=="noncoding") %>% 
+  select(seq_ID) %>% 
+  rename("transcript_id"="seq_ID") %>% # rename for consistency
+  # Join with gff-compare output
+  left_join(x=.,
+            y=df_gff_compare,
+            by="transcript_id") %>% 
+  ## Include some sample metadata
+  left_join(x=.,
+            y=df_txIDs_with_samples_info,
+            by="transcript_id")
+  
+
+# Get CPC2 noncoding IDs
+df_CPC2_noncoding <- read.table("../.temp/coding_potential/concat_output.tsv", header=T, as.is=T, sep="\t") %>% 
+  rename("sequence_ID"="ID") %>% 
+  filter(label=="noncoding") %>% 
+  select(sequence_ID) %>% 
+  # This step is necessary to reduce some manyX-to-manyY (X to manyY will happen - same coords across multiple tissues so same seqID==multiple txID)
+  unique() %>% 
+  # Add real transcript id
+  left_join(x=.,
+            y=df_ALL_IDs,
+            by="sequence_ID") %>% 
+  # Check for NAs (problem while joining)
+  # filter(is.na(transcript_id)) #zero NAs detected
+  select(transcript_id) %>%  # there are no duplicated transcript_ids (as expected)
+  # Join with gff-compare output
+  left_join(x=.,
+            y=df_gff_compare,
+            by="transcript_id") %>% 
+  ## Include some sample metadata
+  left_join(x=.,
+            y=df_txIDs_with_samples_info,
+            by="transcript_id")
+  
+# Check how many noncoding transcripts are shared between CPAT and CPC2 results
+df_CPAT_intersect_CPC2_noncoding <- df_CPAT_noncoding %>% 
+  inner_join(x=.,
+             y=df_CPC2_noncoding,
+             by="transcript_id") %>% 
+  select(transcript_id) %>% 
+  # Join with gff-compare output
+  left_join(x=.,
+            y=df_gff_compare,
+            by="transcript_id") %>% 
+  ## Include some sample metadata
+  left_join(x=.,
+            y=df_txIDs_with_samples_info,
+            by="transcript_id")
+
+
+# Preview data frames
+df_ALL_IDs
+df_CPAT_noncoding
+df_CPC2_noncoding
+df_CPAT_intersect_CPC2_noncoding
+
+# Export dataframes to tsv
+df_CPAT_noncoding %>% 
+  write.table(file='./CPAT_noncoding.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+df_CPC2_noncoding %>% 
+  write.table(file='./CPC2_noncoding.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+df_CPAT_intersect_CPC2_noncoding %>% 
+  write.table(file='./CPAT_intersect_CPC2_noncoding.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+```
+
+# Plots
+```{r}
+# Paletka
+#cbPalette <- c("#d98c8c", "#c65353", "#ccf2ff", "#80dfff", "#4dd2ff", "#00bfff", "#0099cc")
+cbPalette <- c("#D9D9D9", "#BFBFBF","#989898","#595958", "#BC7BEF", "#862CDD","#520B77")
+
+###########################################
+### category_bar_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set) %>% 
+  mutate(percentage=count/sum(count)) -> RNA_category_bar_plot_input
+# PLOT
+RNA_category_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> RNA_category_bar_plot
+
+
+###########################################
+### category_facet_bar_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, combined) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, combined) %>% 
+  mutate(percentage=count/sum(count)) -> RNA_category_facet_bar_plot_input
+# PLOT
+RNA_category_facet_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_wrap(~factor(combined, levels=c("Pre_2-4Cell",
+                                         "Pre_2-4Cell-noSS500",
+                                         "Pre_2-4Cell-TSO",
+                                         "Pre_Shield",
+                                         "Pre_28hpf",
+                                         "Pre_28hpf-noSS500",
+                                         "Pre_28hpf-TSO",
+                                         "Pre_Brain",
+                                         "Pre_Heart",
+                                         "Pre_Heart-noSS500",
+                                         "Pre_Heart-TSO",
+                                         "Pre_Liver",
+                                         "Pre_Ovary",
+                                         "Pre_Testis",
+                                         "Pre_Testis-noSS500",
+                                         "Pre_Testis-TSO",
+                                         "Post_2-4Cell",
+                                         "Post_Shield",
+                                         "Post_28hpf",
+                                         "Post_Brain",
+                                         "Post_Heart",
+                                         "Post_Liver",
+                                         "Post_Ovary",
+                                         "Post_Testis"))) -> RNA_category_facet_bar_plot
+
+
+###########################################
+### category_facet_bar_PrePost_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, tissue, capture_status) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, tissue, capture_status) %>% 
+  mutate(percentage=count/sum(count)) %>% 
+  mutate(capture_status_factor = factor(capture_status,
+                                        levels = c("Pre-capture (lncRNAs)", "Post-capture (lncRNAs)")),
+         tissue_factor = factor(tissue,
+                                levels = c("2-4Cell","2-4Cell-noSS500","2-4Cell-TSO","Shield","28hpf","28hpf-noSS500",
+                                           "28hpf-TSO","Brain","Heart","Heart-noSS500","Heart-TSO","Liver",
+                                           "Ovary","Testis","Testis-noSS500","Testis-TSO"))) -> RNA_category_facet_bar_PrePost_plot_input
+# PLOT
+RNA_category_facet_bar_PrePost_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_nested_wrap(~capture_status_factor + tissue_factor,
+                     nrow = 6,
+                     ncol = 4) +
+  theme(strip.text.x = element_text(size = 14)) -> RNA_category_facet_bar_PrePost_plot
+
+  #facet_grid2(~capture_status + tissue, strip = strip_nested())
+
+
+###########################################
+### category_facet_bar_PrePost_SS500_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, tissue, capture_status) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, tissue, capture_status) %>% 
+  mutate(percentage=count/sum(count)) %>% 
+  filter(!str_detect(tissue, "-TSO")) %>% 
+  filter(!str_detect(tissue, "-noSS500")) %>% 
+  mutate(capture_status_factor = factor(capture_status,
+                                        levels = c("Pre-capture (lncRNAs)", "Post-capture (lncRNAs)")),
+         tissue_factor = factor(tissue,
+                                levels = c("2-4Cell", "Shield", "28hpf", "Brain", "Heart", "Liver", "Ovary", "Testis"))) -> RNA_category_facet_bar_PrePost_SS500_plot_input
+# PLOT
+RNA_category_facet_bar_PrePost_SS500_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_nested_wrap(~capture_status_factor + tissue_factor,
+                     nrow = 4,
+                     ncol = 4) +
+  theme(strip.text.x = element_text(size = 14)) -> RNA_category_facet_bar_PrePost_SS500_plot
+
+
+
+# Display plot inputs
+RNA_category_bar_plot_input
+RNA_category_facet_bar_plot_input
+RNA_category_facet_bar_PrePost_plot_input
+RNA_category_facet_bar_PrePost_SS500_plot_input
+
+# Display plots
+RNA_category_bar_plot
+RNA_category_facet_bar_plot
+RNA_category_facet_bar_PrePost_plot
+RNA_category_facet_bar_PrePost_SS500_plot
+```
+
+# Save plot and input - category bar plot
+```{r}
+# Save input
+RNA_category_bar_plot_input %>% 
+  write.table(file='../../Plots/Coding_potential/Inputs/RNA_category_bar_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf(file="../../Plots/Coding_potential/RNA_category_bar_plot.pdf", width = 5, height = 4)
+RNA_category_bar_plot
+```
+
+# Save plot and input - category facet bar plot
+```{r}
+# Save input
+RNA_category_facet_bar_plot_input %>% 
+  write.table(file='../../Plots/Coding_potential/Inputs/RNA_category_facet_bar_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf(file="../../Plots/Coding_potential/RNA_category_facet_bar_plot.pdf", width = 15, height = 15)
+RNA_category_facet_bar_plot
+```
+
+# Save plot and input - category facet bar plot (PRE/POST)
+```{r}
+# Save input
+RNA_category_facet_bar_PrePost_plot_input %>% 
+  write.table(file='../../Plots/Coding_potential/Inputs/RNA_category_facet_bar_PrePost_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf(file="../../Plots/Coding_potential/RNA_category_facet_bar_PrePost_plot.pdf", width = 15, height = 18)
+RNA_category_facet_bar_PrePost_plot
+```
+
+# Save plot and input - category facet bar plot (PRE/POST) SS500
+```{r}
+# Save input
+RNA_category_facet_bar_PrePost_SS500_plot_input %>% 
+  write.table(file='../../Plots/Coding_potential/Inputs/RNA_category_facet_bar_PrePost_SS500_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf(file="../../Plots/Coding_potential/RNA_category_facet_bar_PrePost_SS500_plot.pdf", width = 10, height = 12)
+RNA_category_facet_bar_PrePost_SS500_plot
+```
+
+
+   ___          _ _             
+  / __\___   __| (_)_ __   __ _ 
+ / /  / _ \ / _` | | '_ \ / _` |
+/ /__| (_) | (_| | | | | | (_| |
+\____/\___/ \__,_|_|_| |_|\__, |
+                          |___/ 
+
+# Process data for:
+## - PC_category_bar_plot
+## - PC_category_facet_bar_plot
+## - PC_category_facet_bar_PrePost_plot
+## - PC_category_facet_bar_PrePost_SS500_plot
+```{r}
+# Clean the env
+rm(list = ls())
+
+## - PC_category_facet_bar_PrePost_plot# Process gff_compare data
+df_gff_compare <- read.table("../.temp/coding_potential/gff_compare_output.tsv", header=F, as.is=T, sep="\t") %>% 
+  rename("transcript_id"="V1") %>% 
+  rename("category"="V2")
+
+# Get all IDs
+df_ALL_IDs <- read.table("../.temp/coding_potential/concatenated_ids.tsv", header=F, as.is=T, sep="\t") %>% 
+  rename("sequence_ID"="V1") %>% 
+  rename("transcript_id"="V2") %>% 
+  rename("strand"="V3")
+
+
+# Assign samples info to transcripts (I'll extract it straight from tx id to not overcomplicate this)
+df_txIDs_with_samples_info <- df_ALL_IDs %>% 
+  select(transcript_id) %>% 
+  separate_wider_delim(cols = "transcript_id",
+                       delim = "_",
+                       names = c("technology", "capture_status", "replicate", "tissue"),
+                       too_many = "drop",
+                       cols_remove = FALSE) %>% 
+  mutate(across("tissue", str_replace, "Rep1.NAM", "")) %>% 
+  mutate(combined=str_c(capture_status, tissue, sep="_")) %>% 
+  mutate(capture_status=ifelse((capture_status=="Pre"), "Pre-capture (protein coding)", capture_status)) %>% 
+  mutate(capture_status=ifelse((capture_status=="Post"), "Post-capture (protein coding)", capture_status))
+  
+
+# Get CPAT noncoding IDs
+# Read output with probability
+df_CPAT_coding <- read.table("../.temp/coding_potential/concat.ORF_prob.best.tsv", header=T, as.is=T, sep="\t") %>% 
+  mutate(label=ifelse((Coding_prob < 0.38), "noncoding", "coding")) %>% 
+  filter(label=="coding") %>% 
+  select(seq_ID) %>% 
+  rename("transcript_id"="seq_ID") %>% # rename for consistency
+  # Join with gff-compare output
+  left_join(x=.,
+            y=df_gff_compare,
+            by="transcript_id") %>% 
+  ## Include some sample metadata
+  left_join(x=.,
+            y=df_txIDs_with_samples_info,
+            by="transcript_id")
+  
+
+# Get CPC2 noncoding IDs
+df_CPC2_coding <- read.table("../.temp/coding_potential/concat_output.tsv", header=T, as.is=T, sep="\t") %>% 
+  rename("sequence_ID"="ID") %>% 
+  filter(label=="coding") %>% 
+  select(sequence_ID) %>% 
+  # This step is necessary to reduce some manyX-to-manyY (X to manyY will happen - same coords across multiple tissues so same seqID==multiple txID)
+  unique() %>% 
+  # Add real transcript id
+  left_join(x=.,
+            y=df_ALL_IDs,
+            by="sequence_ID") %>% 
+  # Check for NAs (problem while joining)
+  # filter(is.na(transcript_id)) #zero NAs detected
+  select(transcript_id) %>%  # there are no duplicated transcript_ids (as expected)
+  # Join with gff-compare output
+  left_join(x=.,
+            y=df_gff_compare,
+            by="transcript_id") %>% 
+  ## Include some sample metadata
+  left_join(x=.,
+            y=df_txIDs_with_samples_info,
+            by="transcript_id")
+  
+# Check how many noncoding transcripts are shared between CPAT and CPC2 results
+df_CPAT_intersect_CPC2_coding <- df_CPAT_coding %>% 
+  inner_join(x=.,
+             y=df_CPC2_coding,
+             by="transcript_id") %>% 
+  select(transcript_id) %>% 
+  # Join with gff-compare output
+  left_join(x=.,
+            y=df_gff_compare,
+            by="transcript_id") %>% 
+  ## Include some sample metadata
+  left_join(x=.,
+            y=df_txIDs_with_samples_info,
+            by="transcript_id")
+
+
+# Preview data frames
+df_ALL_IDs
+df_CPAT_coding
+df_CPC2_coding
+df_CPAT_intersect_CPC2_coding
+
+# Export dataframes to tsv
+df_CPAT_coding %>% 
+  write.table(file='./CPAT_coding.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+df_CPC2_coding %>% 
+  write.table(file='./CPC2_coding.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+df_CPAT_intersect_CPC2_coding %>% 
+  write.table(file='./CPAT_intersect_CPC2_coding.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+```
+
+# Plots
+```{r}
+# Paletka
+#cbPalette <- c("#d98c8c", "#c65353", "#ccf2ff", "#80dfff", "#4dd2ff", "#00bfff", "#0099cc")
+cbPalette <- c("#D9D9D9", "#BFBFBF","#989898","#595958", "#BC7BEF", "#862CDD","#520B77")
+
+###########################################
+### category_bar_plot
+###########################################
+# Data Processing
+df_CPAT_coding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_coding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_coding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set) %>% 
+  mutate(percentage=count/sum(count)) -> PC_category_bar_plot_input
+  # PLOT
+PC_category_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for coding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> PC_category_bar_plot
+
+
+###########################################
+### category_facet_bar_plot
+###########################################
+# Data Processing
+df_CPAT_coding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_coding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_coding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, combined) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, combined) %>% 
+  mutate(percentage=count/sum(count)) -> PC_category_facet_bar_plot_input
+  # PLOT
+PC_category_facet_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for coding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_wrap(~factor(combined, levels=c("Pre_2-4Cell",
+                                         "Pre_2-4Cell-noSS500",
+                                         "Pre_2-4Cell-TSO",
+                                         "Pre_Shield",
+                                         "Pre_28hpf",
+                                         "Pre_28hpf-noSS500",
+                                         "Pre_28hpf-TSO",
+                                         "Pre_Brain",
+                                         "Pre_Heart",
+                                         "Pre_Heart-noSS500",
+                                         "Pre_Heart-TSO",
+                                         "Pre_Liver",
+                                         "Pre_Ovary",
+                                         "Pre_Testis",
+                                         "Pre_Testis-noSS500",
+                                         "Pre_Testis-TSO",
+                                         "Post_2-4Cell",
+                                         "Post_Shield",
+                                         "Post_28hpf",
+                                         "Post_Brain",
+                                         "Post_Heart",
+                                         "Post_Liver",
+                                         "Post_Ovary",
+                                         "Post_Testis"))) -> PC_category_facet_bar_plot
+
+
+###########################################
+### category_facet_bar_PrePost_plot
+###########################################
+# Data Processing
+df_CPAT_coding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_coding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_coding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, capture_status, tissue) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, capture_status, tissue) %>% 
+  mutate(percentage=count/sum(count)) %>% 
+  mutate(capture_status_factor = factor(capture_status,
+                                        levels = c("Pre-capture (protein coding)", "Post-capture (protein coding)")),
+         tissue_factor = factor(tissue,
+                                levels = c("2-4Cell","2-4Cell-noSS500","2-4Cell-TSO","Shield","28hpf","28hpf-noSS500",
+                                           "28hpf-TSO","Brain","Heart","Heart-noSS500","Heart-TSO","Liver",
+                                           "Ovary","Testis","Testis-noSS500","Testis-TSO"))) -> PC_category_facet_bar_PrePost_plot_input
+  # PLOT
+PC_category_facet_bar_PrePost_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for coding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_nested_wrap(~capture_status_factor + tissue_factor,
+                     nrow = 6,
+                     ncol = 4) +
+  theme(strip.text.x = element_text(size = 14)) -> PC_category_facet_bar_PrePost_plot
+
+  #facet_grid2(~capture_status + tissue, strip = strip_nested())
+
+
+###########################################
+### category_facet_bar_PrePost_SS500_plot
+###########################################
+# Data Processing
+df_CPAT_coding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_coding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_coding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, capture_status, tissue) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, capture_status, tissue) %>% 
+  mutate(percentage=count/sum(count)) %>% 
+  filter(!str_detect(tissue, "-TSO")) %>% 
+  filter(!str_detect(tissue, "-noSS500")) %>% 
+  mutate(capture_status_factor = factor(capture_status,
+                                        levels = c("Pre-capture (protein coding)", "Post-capture (protein coding)")),
+         tissue_factor = factor(tissue,
+                                levels = c("2-4Cell", "Shield", "28hpf", "Brain", "Heart", "Liver", "Ovary", "Testis"))) -> PC_category_facet_bar_PrePost_SS500_plot_input
+  # PLOT
+PC_category_facet_bar_PrePost_SS500_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for coding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_nested_wrap(~capture_status_factor + tissue_factor,
+                     nrow = 4,
+                     ncol = 4) +
+  theme(strip.text.x = element_text(size = 14)) -> PC_category_facet_bar_PrePost_SS500_plot
+
+
+# Display plot inputs
+PC_category_bar_plot_input
+PC_category_facet_bar_plot_input
+PC_category_facet_bar_PrePost_plot_input
+PC_category_facet_bar_PrePost_SS500_plot_input
+
+# Display plots
+PC_category_bar_plot
+PC_category_facet_bar_plot
+PC_category_facet_bar_PrePost_plot
+PC_category_facet_bar_PrePost_SS500_plot
+```
+
+# Save plot and input - category bar plot
+```{r}
+# Save input
+PC_category_bar_plot_input %>% 
+  write.table(file='../../Plots/Coding_potential/Inputs/PC_category_bar_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf(file="../../Plots/Coding_potential/PC_category_bar_plot.pdf", width = 5, height = 4)
+PC_category_bar_plot
+```
+
+# Save plot and input - category facet bar plot
+```{r}
+# Save input
+PC_category_facet_bar_plot_input %>% 
+  write.table(file='../../Plots/Coding_potential/Inputs/PC_category_facet_bar_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf(file="../../Plots/Coding_potential/PC_category_facet_bar_plot.pdf", width = 15, height = 15)
+PC_category_facet_bar_plot
+```
+
+# Save plot and input - category facet bar plot (PRE/POST)
+```{r}
+# Save input
+PC_category_facet_bar_PrePost_plot_input %>% 
+  write.table(file='../../Plots/Coding_potential/Inputs/PC_category_facet_bar_PrePost_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf(file="../../Plots/Coding_potential/PC_category_facet_bar_PrePost_plot.pdf", width = 15, height = 18)
+PC_category_facet_bar_PrePost_plot
+```
+
+# Save plot and input - category facet bar plot (PRE/POST) SS500
+```{r}
+# Save input
+PC_category_facet_bar_PrePost_SS500_plot_input %>% 
+  write.table(file='../../Plots/Coding_potential/Inputs/PC_category_facet_bar_PrePost_SS500_plot.tsv', quote=FALSE, sep='\t', row.names = FALSE)
+
+# Save plot
+pdf(file="../../Plots/Coding_potential/PC_category_facet_bar_PrePost_SS500_plot.pdf", width = 10, height = 12)
+PC_category_facet_bar_PrePost_SS500_plot
+```
+
+
+
+
+
+
+
+
+
+
+
+# Provoke error to stop processin
+```{r}
+youshallnotpass
+```
+
+
+# JUNK
+```{r}
+read.table("../.temp/coding_potential/concat_output.tsv", header=T, as.is=T, sep="\t") %>% 
+  rename("sequence_ID"="ID") %>% 
+  filter(label=="noncoding") %>% 
+  nrow()
+  
+read.table("../.temp/coding_potential/concat_output.tsv", header=T, as.is=T, sep="\t") %>% 
+  rename("sequence_ID"="ID") %>% 
+  filter(label=="noncoding") %>% 
+  distinct(sequence_ID) %>% 
+  nrow()
+
+read.table("../.temp/coding_potential/concat_output.tsv", header=T, as.is=T, sep="\t") %>% 
+  rename("sequence_ID"="ID") %>% 
+  filter(label=="noncoding") %>% 
+  unique() %>% 
+  nrow()
+
+```
+
+
+
+
+```{r}
+df_CPC2_noncoding %>% 
+  filter(capture_status=="Post") %>% 
+  distinct(combined)
+  
+
+
+
+
+
+levels=c("Pre_2-4Cell",
+         "Pre_2-4Cell-noSS500",
+         "Pre_2-4Cell-TSO",
+         "Pre_Shield",
+         "Pre_28hpf",
+         "Pre_28hpf-noSS500",
+         "Pre_28hpf-TSO",
+         "Pre_Brain",
+         "Pre_Heart",
+         "Pre_Heart-noSS500",
+         "Pre_Heart-TSO",
+         "Pre_Liver",
+         "Pre_Ovary",
+         "Pre_Testis",
+         "Pre_Testis-noSS500",
+         "Pre_Testis-TSO",
+         "Post_2-4Cell",
+         "Post_Shield",
+         "Post_28hpf",
+         "Post_Brain",
+         "Post_Heart",
+         "Post_Liver",
+         "Post_Ovary",
+         "Post_Testis")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+# Paletka
+cbPalette <- c("#d98c8c", "#c65353", "#ccf2ff", "#80dfff", "#4dd2ff", "#00bfff", "#0099cc")
+
+###########################################
+### category_facet_bar_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, tissue, capture_status) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, tissue, capture_status) %>% 
+  mutate(percentage=count/sum(count)) -> RNA_category_facet_bar_plot_input
+# PLOT
+RNA_category_facet_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  # facet_nested_wrap(~factor(capture_status, levels=c("Pre-capture (protein coding)", "Post-capture (protein coding)")) + tissue,
+  #                    nrow = 6,
+  #                    ncol = 4,)
+
+  facet_grid2(~capture_status + tissue, strip = strip_nested())
+
+```
+
+# backup dla noncoding
+# Plots
+```{r}
+# Paletka
+cbPalette <- c("#d98c8c", "#c65353", "#ccf2ff", "#80dfff", "#4dd2ff", "#00bfff", "#0099cc")
+
+###########################################
+### category_bar_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set) %>% 
+  mutate(percentage=count/sum(count)) -> RNA_category_bar_plot_input
+# PLOT
+RNA_category_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> RNA_category_bar_plot
+
+
+###########################################
+### category_facet_bar_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, combined) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, combined) %>% 
+  mutate(percentage=count/sum(count)) -> RNA_category_facet_bar_plot_input
+# PLOT
+RNA_category_facet_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_wrap(~factor(combined, levels=c("Pre_2-4Cell",
+                                         "Pre_2-4Cell-noSS500",
+                                         "Pre_2-4Cell-TSO",
+                                         "Pre_Shield",
+                                         "Pre_28hpf",
+                                         "Pre_28hpf-noSS500",
+                                         "Pre_28hpf-TSO",
+                                         "Pre_Brain",
+                                         "Pre_Heart",
+                                         "Pre_Heart-noSS500",
+                                         "Pre_Heart-TSO",
+                                         "Pre_Liver",
+                                         "Pre_Ovary",
+                                         "Pre_Testis",
+                                         "Pre_Testis-noSS500",
+                                         "Pre_Testis-TSO",
+                                         "Post_2-4Cell",
+                                         "Post_Shield",
+                                         "Post_28hpf",
+                                         "Post_Brain",
+                                         "Post_Heart",
+                                         "Post_Liver",
+                                         "Post_Ovary",
+                                         "Post_Testis"))) -> RNA_category_facet_bar_plot
+
+
+###########################################
+### category_facet_bar_Pre_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  filter(capture_status=="Pre") %>% 
+  group_by(set, category, tissue) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, tissue) %>% 
+  mutate(percentage=count/sum(count)) -> RNA_category_facet_bar_Pre_plot_input
+# PLOT
+RNA_category_facet_bar_Pre_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models (Pre-capture)") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_wrap(~factor(tissue, levels=c("2-4Cell",
+                                       "2-4Cell-noSS500",
+                                       "2-4Cell-TSO",
+                                       "Shield",
+                                       "28hpf",
+                                       "28hpf-noSS500",
+                                       "28hpf-TSO",
+                                       "Brain",
+                                       "Heart",
+                                       "Heart-noSS500",
+                                       "Heart-TSO",
+                                       "Liver",
+                                       "Ovary",
+                                       "Testis",
+                                       "Testis-noSS500",
+                                       "Testis-TSO")),
+             nrow = 2) -> RNA_category_facet_bar_Pre_plot
+
+
+###########################################
+### category_facet_bar_Post_plot
+###########################################
+# Data Processing
+df_CPAT_noncoding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_noncoding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_noncoding %>% 
+          mutate(set="Intersection")) %>% 
+  filter(capture_status=="Post") %>% 
+  group_by(set, category, tissue) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, tissue) %>% 
+  mutate(percentage=count/sum(count)) -> RNA_category_facet_bar_Post_plot_input
+# PLOT
+RNA_category_facet_bar_Post_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for noncoding transcript models (Post-capture)") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_wrap(~factor(tissue,
+                     levels=c("2-4Cell",
+                              "Shield",
+                              "28hpf",
+                              "Brain",
+                              "Heart",
+                              "Liver",
+                              "Ovary",
+                              "Testis")),
+             nrow = 1) -> RNA_category_facet_bar_Post_plot
+
+# Display plot inputs
+RNA_category_bar_plot_input
+RNA_category_facet_bar_plot_input
+RNA_category_facet_bar_Pre_plot_input
+RNA_category_facet_bar_Post_plot_input
+
+# Display plots
+RNA_category_bar_plot
+RNA_category_facet_bar_plot
+RNA_category_facet_bar_Pre_plot
+RNA_category_facet_bar_Post_plot
+```
+
+## Backup dla coding
+# Plots
+```{r}
+# Paletka
+cbPalette <- c("#d98c8c", "#c65353", "#ccf2ff", "#80dfff", "#4dd2ff", "#00bfff", "#0099cc")
+
+###########################################
+### category_bar_plot
+###########################################
+# Data Processing
+df_CPAT_coding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_coding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_coding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set) %>% 
+  mutate(percentage=count/sum(count)) -> PC_category_bar_plot_input
+  # PLOT
+PC_category_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for coding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) -> PC_category_bar_plot
+
+
+###########################################
+### category_facet_bar_plot
+###########################################
+# Data Processing
+df_CPAT_coding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_coding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_coding %>% 
+          mutate(set="Intersection")) %>% 
+  group_by(set, category, combined) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, combined) %>% 
+  mutate(percentage=count/sum(count)) -> PC_category_facet_bar_plot_input
+  # PLOT
+PC_category_facet_bar_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for coding transcript models") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_wrap(~factor(combined, levels=c("Pre_2-4Cell",
+                                         "Pre_2-4Cell-noSS500",
+                                         "Pre_2-4Cell-TSO",
+                                         "Pre_Shield",
+                                         "Pre_28hpf",
+                                         "Pre_28hpf-noSS500",
+                                         "Pre_28hpf-TSO",
+                                         "Pre_Brain",
+                                         "Pre_Heart",
+                                         "Pre_Heart-noSS500",
+                                         "Pre_Heart-TSO",
+                                         "Pre_Liver",
+                                         "Pre_Ovary",
+                                         "Pre_Testis",
+                                         "Pre_Testis-noSS500",
+                                         "Pre_Testis-TSO",
+                                         "Post_2-4Cell",
+                                         "Post_Shield",
+                                         "Post_28hpf",
+                                         "Post_Brain",
+                                         "Post_Heart",
+                                         "Post_Liver",
+                                         "Post_Ovary",
+                                         "Post_Testis"))) -> PC_category_facet_bar_plot
+
+
+###########################################
+### category_facet_bar_pre_plot
+###########################################
+# Data Processing
+df_CPAT_coding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_coding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_coding %>% 
+          mutate(set="Intersection")) %>% 
+  filter(capture_status=="Pre") %>% 
+  group_by(set, category, tissue) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, tissue) %>% 
+  mutate(percentage=count/sum(count)) -> PC_category_facet_bar_Pre_plot_input
+  # PLOT
+PC_category_facet_bar_Pre_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for coding transcript models (Pre-capture)") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_wrap(~factor(tissue,
+                     levels=c("2-4Cell",
+                             "2-4Cell-noSS500",
+                             "2-4Cell-TSO",
+                             "Shield",
+                             "28hpf",
+                             "28hpf-noSS500",
+                             "28hpf-TSO",
+                             "Brain",
+                             "Heart",
+                             "Heart-noSS500",
+                             "Heart-TSO",
+                             "Liver",
+                             "Ovary",
+                             "Testis",
+                             "Testis-noSS500",
+                             "Testis-TSO")),
+             nrow = 2) -> PC_category_facet_bar_Pre_plot
+
+
+###########################################
+### category_facet_bar_pre_plot
+###########################################
+# Data Processing
+df_CPAT_coding %>% 
+  mutate(set="CPAT") %>% 
+  rbind(df_CPC2_coding %>% 
+          mutate(set="CPC2")) %>% 
+  rbind(df_CPAT_intersect_CPC2_coding %>% 
+          mutate(set="Intersection")) %>% 
+  filter(capture_status=="Post") %>% 
+  group_by(set, category, tissue) %>% 
+  summarise(count=n(),
+            .groups = "keep") %>% 
+  group_by(set, tissue) %>% 
+  mutate(percentage=count/sum(count)) -> PC_category_facet_bar_Post_plot_input
+  # PLOT
+PC_category_facet_bar_Post_plot_input %>% 
+  ggplot(aes(x=set,
+             y=percentage,
+             fill=factor(category, levels=c("Included", "Equal", "Overlaps", "Antisense", "Intronic", "Extends", "Intergenic")))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(count)),
+            position = position_stack(vjust = 0.5),
+            size = 2.5) +
+  scale_fill_manual(values = cbPalette) +
+  theme_bw() +
+  ggtitle("Stats for coding transcript models (Post-capture)") +
+  ylab("percentage") +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  guides(fill=guide_legend(title="Category")) +
+  #theme(legend.position="top") +
+  theme(axis.text.x = element_text(size = 12, colour = "black"), #, angle = 60, hjust = 1,
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 12,  colour = "black"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 15, hjust = 0.5),
+        #legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        strip.text.x = element_text(size = 18),
+        strip.text.y = element_text(size = 18)) +
+  facet_wrap(~factor(tissue,
+                     levels=c("2-4Cell",
+                               "Shield",
+                               "28hpf",
+                               "Brain",
+                               "Heart",
+                               "Liver",
+                               "Ovary",
+                               "Testis")),
+             nrow = 1) -> PC_category_facet_bar_Post_plot
+
+
+# Display plot inputs
+PC_category_bar_plot_input
+PC_category_facet_bar_plot_input
+PC_category_facet_bar_Pre_plot_input
+PC_category_facet_bar_Post_plot_input
+
+# Display plots
+PC_category_bar_plot
+PC_category_facet_bar_plot
+PC_category_facet_bar_Pre_plot
+PC_category_facet_bar_Post_plot
+```
+
+
+
+
+
+
+```{r}
+PC_category_facet_bar_PrePost_SS500_plot_input %>% 
+  ungroup() %>% 
+  distinct(tissue)
+```
+
