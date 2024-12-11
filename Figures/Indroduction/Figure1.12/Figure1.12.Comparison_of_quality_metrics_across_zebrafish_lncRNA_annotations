@@ -1,0 +1,40 @@
+```{r}
+pdf("Figure1.12.Comparison_of_quality_metrics_across_zebrafish_lncRNA_annotations.pdf", bg = "transparent", width=14, height=7)
+
+cbPalette <- c("#a5a5a5", "#a5a5a5",
+               "#c5e3ec", "#c5e3ec", "#c5e3ec", "#c5e3ec", "#c5e3ec")
+
+
+Figure1.12.Input_file %>% 
+  ggplot(aes(x=gene, y=fl, size=Isoforms, fill=factor(Catalogue,
+                                                              levels=c("protein coding (v104)",
+                                                                       "protein coding (v47)",
+                                                                       "GENCODE v47",
+                                                                       "ENSEMBL v104",
+                                                                       "lncRbaseV2",
+                                                                       "RefSeq",
+                                                                       "ZFLNC")))) +
+  geom_point(shape = 21, alpha = 0.75) +
+  geom_label_repel(aes(label = Catalogue),
+                   box.padding   = 0.35,
+                   size = 4, 
+                   point.padding = 0.5,
+                   segment.color = 'grey50') +
+  ylab("% Support") +
+  scale_fill_manual(values = cbPalette)+ theme_bw(base_size = 24) +
+  xlab("Number of loci") +
+  scale_x_continuous(lim=c(0,50000), breaks=seq(0,50000, by=10000)) +
+  scale_y_continuous(labels=percent, lim=c(0,1.0)) +
+  theme(axis.text.x = element_text(vjust=0.5),legend.text = element_text(size=12.5)) +
+  theme(axis.line.x = element_line(colour = "black"),
+  axis.line.y = element_line(colour = "black"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  strip.background = element_rect(colour="black",fill="white")) +
+  scale_size_area(max_size = 17) +
+  guides(fill = guide_legend(override.aes = list(size=6.5),
+                             title = "Catalogue"))
+
+```
