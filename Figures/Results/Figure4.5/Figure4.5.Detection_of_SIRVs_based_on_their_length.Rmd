@@ -1,0 +1,67 @@
+
+
+```{r}
+
+#Modify the sample names 
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="HeartRep1"]<-"Heart_CapTrap-SS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="BrainRep1"]<-"Brain_CapTrap-SS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="LiverRep1"]<-"Liver_CapTrap-SS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="OvaryRep1"]<-"Ovary_CapTrap-SS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="TestisRep1"]<-"Testis_CapTrap-SS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="2-4CellRep1"]<-"2-4Cell_CapTrap-SS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="ShieldRep1"]<-"Shield_CapTrap-SS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="28hpfRep1"]<-"28hpf_CapTrap-SS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="2-4Cell-TSORep1"]<-"2-4Cell_TSO"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="2-4Cell-noSS500Rep1"]<-"2-4Cell_CapTrap-noSS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="Heart-TSORep1"]<-"Heart_TSO"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="28hpf-TSORep1"]<-"28hpf_TSO"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="Testis-TSORep1"]<-"Testis_TSO"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="28hpf-noSS500Rep1"]<-"28hpf_CapTrap-noSS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="Heart-noSS500Rep1"]<-"Heart_CapTrap-noSS500"
+
+Figure4.5.Input_File$sampleRep[Figure4.5.Input_File$sampleRep=="Testis-noSS500Rep1"]<-"Testis_CapTrap-noSS500"
+  
+```
+
+```{r}
+#Adjust the sample names
+Figure4.5.Input_File <- separate_wider_delim(Figure4.5.Input_File, sampleRep, delim = "_", names = c("Sample", "LibraryPrep"))
+```
+
+```{r}
+#Create the plot 
+
+pdf("Figure4.5.Detection_of_SIRVs_based_on_their_length.pdf", bg = "transparent", width=7, height=10)
+
+Figure4.5.Input_File$detectionStatus=factor(Figure4.5.Input_File$detectionStatus, levels=c("end-to-end", "partial", "absent"))
+
+Figure4.5.Input_File %>% 
+  filter(capDesign=="Pre") %>%
+   group_by(LibraryPrep) %>% 
+  filter(grepl('TSO|CapTrap-noSS500', LibraryPrep)) %>% 
+  filter(grepl('Heart|Testis|2-4Cell|28hpf', Sample)) %>% 
+  ggplot(aes(x=detectionStatus, y=length, fill = detectionStatus)) +
+ geom_dotplot(binaxis = "y",
+               stackdir = "center",
+               dotsize = 1.2) +
+    coord_cartesian(ylim=c(0, 2700)) +
+  facet_grid(Sample ~ LibraryPrep) +
+  ylab("SIRVs Length") +
+  theme_bw()+
+    scale_fill_manual(values=c('end-to-end' = "#199f72",  'partial' = "#f48ba5",  'absent' ="#838383"))
+```
