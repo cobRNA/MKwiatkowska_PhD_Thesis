@@ -1,0 +1,45 @@
+```{r}
+#Modify the sample names
+
+Figure4.4.Input_file$Sample[Figure4.4.Input_file$Sample=="2-4Cell-TSORep1"]<-"2-4Cell_TSO"
+
+Figure4.4.Input_file$Sample[Figure4.4.Input_file$Sample=="2-4Cell-noSS500Rep1"]<-"2-4Cell_CapTrap-noSS500"
+
+Figure4.4.Input_file$Sample[Figure4.4.Input_file$Sample=="Heart-TSORep1"]<-"Heart_TSO"
+
+Figure4.4.Input_file$Sample[Figure4.4.Input_file$Sample=="28hpf-TSORep1"]<-"28hpf_TSO"
+
+Figure4.4.Input_file$Sample[Figure4.4.Input_file$Sample=="Testis-TSORep1"]<-"Testis_TSO"
+
+Figure4.4.Input_file$Sample[Figure4.4.Input_file$Sample=="28hpf-noSS500Rep1"]<-"28hpf_CapTrap-noSS500"
+
+Figure4.4.Input_file$Sample[Figure4.4.Input_file$Sample=="Heart-noSS500Rep1"]<-"Heart_CapTrap-noSS500"
+
+Figure4.4.Input_file$Sample[Figure4.4.Input_file$Sample=="Testis-noSS500Rep1"]<-"Testis_CapTrap-noSS500"
+  
+```
+
+```{r}
+#Adjust sample names 
+
+Figure4.4.Input_file <- separate_wider_delim(Figure4.4.Input_file, Sample, delim = "_", names = c("Sample", "LibraryPrep"))
+```
+```{r}
+#Create the plot
+
+pdf("Figure 4.4.The_error_rate_across_CapTrap-seq_and_TSO_sequencing_library_preparation_protocols_for_zebrafish_samples.pdf", bg = "transparent", width=14, height=10)
+
+Figure4.4.Input_file %>%
+  filter(capDesign=="Pre") %>% 
+  filter(grepl('Heart|Testis|2-4Cell|28hpf', Sample)) %>% 
+ggplot(aes(x=sizeFrac, y=errorRate, fill = errorCategory)) +
+  geom_bar(stat = "identity") +
+  facet_grid(Sample~LibraryPrep)+
+  ylab("# errors per mapped base") +
+  geom_text(aes(label=round(errorRate, digits=7)),  vjust=0.3, position = position_stack(.5), colour = "black") +
+  scale_y_continuous(labels = label_scientific(digits = 1))+
+scale_fill_manual(values=c('deletions' = '#0c3048', 'insertions' = '#EF382C', 'mismatches' = '#FF7F2A')) +
+  theme_bw()+
+  theme(legend.position="top")
+```
+
